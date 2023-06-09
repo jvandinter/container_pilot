@@ -58,8 +58,8 @@ else
 fi
 
 # Use STAR for mapping the reads
-STAR --version
-STAR --genomeDir "${star_index_basedir}/${used_index}nt" \
+apptainer exec -B /hpc:/hpc ${container_dir}/STAR-2.7.8a.sif STAR --version
+apptainer exec -B /hpc:/hpc ${container_dir}/STAR-2.7.8a.sif STAR --genomeDir "${star_index_basedir}/${used_index}nt" \
   --sjdbGTFfile ${reference_gtf} \
   --readFilesIn "${outdir}/trimgalore/${sample_id}/${r1_trimmed}" "${outdir}/trimgalore/${sample_id}/${r2_trimmed}" \
   --readFilesCommand zcat \

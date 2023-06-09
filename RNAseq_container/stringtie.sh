@@ -2,9 +2,6 @@
 
 set -uo pipefail
 
-# Load modules
-module load stringtie/${stringtie_version}
-
 # Load files
 mapfile -t sample_ids < sample_ids.txt
 
@@ -39,9 +36,9 @@ echo "`date` running Stringtie for sample ${sample_id}"
 bam=$(realpath "${outdir}/star/${sample_id}/${sample_id}.Aligned.sortedByCoord.out.bam")
 
 # Use Stringtie to assemble transcriptome
-stringtie --version
+apptainer exec -B /hpc:/hpc ${container_dir}/stringtie-2.1.5.sif stringtie --version
 
-stringtie ${bam} \
+apptainer exec -B /hpc:/hpc ${container_dir}/stringtie-2.1.5.sif stringtie ${bam} \
     -G ${reference_gtf} \
     --${strandtype} \
     -M 0.45 \

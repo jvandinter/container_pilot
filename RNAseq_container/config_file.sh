@@ -21,8 +21,8 @@ export min_tpm=1
 
 # Set paths
 export resource_dir="/hpc/pmc_vanheesch/shared_resources"
-export scriptdir="${wd}/container_pilot/RNAseq_container"
-export container_dir="/hpc/local/Rocky8/pmc_vanheesch/singularity_images"
+export scriptdir="${wd}/container_pilot/RNAseq_container" # Folder containing all scripts for the pipeline
+export container_dir="/hpc/local/Rocky8/pmc_vanheesch/singularity_images" # Folder containing all of our container versions
 export data_folder="/hpc/pmc_vanheesch/data"  # Data folder containing all of our sequencing data
 
 # Set reference files

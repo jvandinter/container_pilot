@@ -2,10 +2,6 @@
 
 set -uo pipefail
 
-# Load required modules
-module load subread/${subread_version}
-module load R/${r_version}
-
 # Create output dir
 mkdir -p "${outdir}/featurecounts"
 
@@ -35,9 +31,8 @@ strandtype=$(IFS=,; echo "${strandtype[*]}")
 
 echo "`date` Running featureCounts"
 
-featureCounts -v
-
-featureCounts \
+apptainer exec -B "/hpc:/hpc" ${container_dir}/subread-2.0.2.sif featureCounts -v
+apptainer exec -B "/hpc:/hpc" ${container_dir}/subread-2.0.2.sif featureCounts \
   -s ${strandtype} \
   -T 8 \
   -p \
