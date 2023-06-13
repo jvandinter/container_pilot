@@ -143,7 +143,7 @@ info "Howarewestrandedhere jobid: ${strand_jobid[@]}"
 # Step 3: Align with STAR
 star_jobid=()
 star_jobid+=($(sbatch --parsable \
-  --mem=200G \
+  --mem=100G \
   --cpus-per-task=16 \
   --time=24:00:00 \
   --array 1-${#samples[@]}%${simul_array_runs} \

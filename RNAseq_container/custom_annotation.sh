@@ -12,7 +12,7 @@ echo "`date` Generating custom annotation ..."
 
 # Prepare RiboseQC and ORFquant annotation files based on 
 # merged annotated stringtie GTF
-apptainer exec -B "/hpc:/hpc" ${container_dir}/riboseqc-4.1.2.sif Rscript "${scriptdir}/prepare_custom_annotation.R" \
+apptainer exec -B "/hpc:/hpc" ${container_dir}/orfquant-4.1.2.sif Rscript "${scriptdir}/prepare_custom_annotation.R" \
   ${twobit} \
   "${outdir}/customannotation/${merged_gtf_basename}_novel_filtered.gtf" \
   "${outdir}/customannotation/${merged_gtf_basename}/" \

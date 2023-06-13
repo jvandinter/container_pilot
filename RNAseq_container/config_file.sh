@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Run parameters
-export wd=`pwd`
+export wd=""
 export project_data_folder="${wd}/data/raw/"
 export outdir="${wd}/data/processed"
 export simul_array_runs=24
@@ -13,7 +13,7 @@ export create_annotation="TRUE"
 # Reference parameters
 export species="Homo_sapiens"
 export genome_version="GRCh38"
-export annot="102"
+export annot_version="102"
 
 # Transcript filtering parameters
 export min_occurrence=3
@@ -33,13 +33,3 @@ export reference_genome="/${resource_dir}/GENOMES/${species}.${genome_version}/$
 export masked_fasta="${resource_dir}/GENOMES/${species}.${genome_version}/${annot_version}/${species}.${genome_version}.dna_sm.primary_assembly.fa"
 export twobit="${resource_dir}/GENOMES/${species}.${genome_version}/${annot_version}/${species}.${genome_version}.dna.primary_assembly.2bit"
 export kallisto_index="${resource_dir}/GENOMES/${species}.${genome_version}/${annot_version}/kallisto/0.44/kallisto_index"
-
-###########################
-### Resource allocation ###
-###########################
-low_mem=8G
-medium_mem=48G
-high_mem=200G
-low_cpu=1
-medium_cpu=6
-high_cpu=16
