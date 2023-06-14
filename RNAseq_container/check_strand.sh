@@ -2,9 +2,6 @@
 
 set -uo pipefail
 
-# Load necessary modules
-module load howarewestrandedhere
-
 # Load files
 mapfile -t r1_files < r1_files.txt
 mapfile -t r2_files < r2_files.txt
@@ -25,11 +22,12 @@ if [[ -s "${outdir}/check_strandedness/${sample_id}.txt" ]]; then
 fi
 
 # Infer strandedness
-check_strandedness -g ${reference_gtf} \
--n 1000000 \
--r1 ${r1_file} \
--r2 ${r2_file} \
--k "${kallisto_index}" >> "${outdir}/check_strandedness/${sample_id}.txt"
+apptainer exec -B "/hpc:/hpc" --env "LC_ALL=C.UTF-8" ${container_dir}/howarewestrandedhere-1.0.1.sif check_strandedness \
+  -g ${reference_gtf} \
+  -n 1000000 \
+  -r1 ${r1_file} \
+  -r2 ${r2_file} \
+  -k "${kallisto_index}" >> "${outdir}/check_strandedness/${sample_id}.txt"
 
 # Record strandedness
 touch "${outdir}/check_strandedness/strandedness_all.txt" 

@@ -27,13 +27,13 @@ fi
 
 # Run cutadapt on both reads
 echo "`date` running trimgalore for ${sample_id}"
-apptainer exec -B /hpc:/hpc ${container_dir}/trimgalore-0.6.6.sif cutadapt --version
-apptainer exec -B /hpc:/hpc ${container_dir}/trimgalore-0.6.6.sif fastqc --version
-apptainer exec -B /hpc:/hpc ${container_dir}/trimgalore-0.6.6.sif fastqc --version
+apptainer exec -B "/hpc:/hpc" --env "LC_ALL=C.UTF-8" ${container_dir}/trimgalore-0.6.6.sif cutadapt --version
+apptainer exec -B "/hpc:/hpc" --env "LC_ALL=C.UTF-8" ${container_dir}/trimgalore-0.6.6.sif fastqc --version
+apptainer exec -B "/hpc:/hpc" --env "LC_ALL=C.UTF-8" ${container_dir}/trimgalore-0.6.6.sif trim_galore --version
 
 cd "${outdir}/trimgalore/${sample_id}/"
 
-apptainer exec -B /hpc:/hpc ${container_dir}/trimgalore-0.6.6.sif trim_galore \ 
+apptainer exec -B "/hpc:/hpc" --env LC_ALL=C.UTF-8 ${container_dir}/trimgalore-0.6.6.sif trim_galore \
   "${r1_file}" "${r2_file}" \
   --cores 2 \
   --paired \
