@@ -2,10 +2,9 @@
 
 # RNAseq_regular.sh
 #
-# A pipeline script for processing RNA-seq data using SLURM workload manager and lmod module system. 
+# A pipeline script for processing RNA-seq data using SLURM workload manager and apptainer container system. 
 # The script identifies the fastq files for each sample and initiates a SLURM array to execute the pipeline steps for each sample in parallel. 
 # The steps include quality control, trimming, strandedness check, alignment, and quantification.
-# This pipeline performs 'regular' analysis, using full read lengths etc for the analyses, in contrast to the pipeline used for TE calculation.
 # See the config_file.sh for module dependencies, version numbers, and reference files used.
 #
 # List of output files
@@ -20,16 +19,16 @@
 # Damon Hofman (d.a.hofman-3@prinsesmaximacentrum.nl)
 # Jip van Dinter (j.t.vandinter-3@prinsesmaximacentrum.nl)
 #
-# Date: 12-04-2023
+# Date: 21-06-2023
 
 set -uo pipefail
 
 function usage() {
     cat <<EOF
 SYNOPSIS
-  run_rnaseq_alignment.sh [-c <config file>] [-h]
+  run_id_rnaseq_alignment.sh [-c <config file>] [-h]
 DESCRIPTION
-  Run the RNAseq processing pipeline consisting of the following steps:
+  run_id the RNAseq processing pipeline consisting of the following steps:
   1. Trim reads with trimgalore (wrapper for cutadapt and fastqc)
   2. Check strandedness of reads with 'howarewestrandedhere'
   3. Map reads with STAR
@@ -85,20 +84,20 @@ source $CONFIG
 # Load general functions
 source ${scriptdir}/general_functions.sh
 
-# Create a unique prefix for the names for this run of the pipeline
-# This makes sure that runs can be identified
-run=$(uuidgen | tr '-' ' ' | awk '{print $1}')
+# Create a unique prefix for the names for this run_id of the pipeline
+# This makes sure that run_ids can be identified
+run_id=$(uuidgen | tr '-' ' ' | awk '{print $1}')
 
 # Find samples
 echo "$(date '+%Y-%m-%d %H:%M:%S') Finding samples..."
 get_samples $project_data_folder $data_folder $paired_end
 
-printf "%s\n" "${r1_files[@]}" > r1_files.txt
-printf "%s\n" "${r2_files[@]}" > r2_files.txt
-printf "%s\n" "${sample_ids[@]}" > sample_ids.txt
+printf "%s\n" "${r1_files[@]}" > documentation/r1_files.txt
+printf "%s\n" "${r2_files[@]}" > documentation/r2_files.txt
+printf "%s\n" "${sample_ids[@]}" > documentation/sample_ids.txt
 
 # Create output directories
-mkdir -p log/${run}/{trimgalore,star,samtools,howarewestrandedhere} 
+mkdir -p ${project_data_folder}/log/${run_id}/{trimgalore,star,samtools,howarewestrandedhere} 
 mkdir -p ${outdir}
 
 ##############################################################################
@@ -110,9 +109,9 @@ trim_jobid+=($(sbatch --parsable \
   --mem=24G \
   --cpus-per-task=4 \
   --time=24:00:00 \
-  --array 1-${#samples[@]}%${simul_array_runs} \
-  --job-name=${run}.trimgalore \
-  --output=log/${run}/trimgalore/%A_%a.out \
+  --array 1-${#samples[@]}%${simul_array_run_ids} \
+  --job-name=${run_id}.trimgalore \
+  --output=${project_data_folder}/log/${run_id}/trimgalore/%A_%a.out \
   --export=ALL \
   "${scriptdir}/trimgalore.sh"
 ))
@@ -121,8 +120,6 @@ if [[ ${#trim_jobid[@]} -eq 0 ]]; then
 fi
 info "TrimGalore jobid: ${trim_jobid[@]}"
 
-
-
 # Step 2: Check strandedness
 strand_jobid=()
 
@@ -130,15 +127,14 @@ strand_jobid+=($(sbatch --parsable \
   --mem=10G \
   --cpus-per-task=2 \
   --time=24:00:00 \
-  --array 1-${#samples[@]}%${simul_array_runs} \
-  --job-name=${run}.howarewestrandedhere \
-  --output=log/${run}/howarewestrandedhere/%A_%a.out \
+  --array 1-${#samples[@]}%${simul_array_run_ids} \
+  --job-name=${run_id}.howarewestrandedhere \
+  --output=${project_data_folder}/log/${run_id}/howarewestrandedhere/%A_%a.out \
   --export=ALL \
   "${scriptdir}/check_strand.sh"
 ))
 
 info "Howarewestrandedhere jobid: ${strand_jobid[@]}"
-
 
 # Step 3: Align with STAR
 star_jobid=()
@@ -146,15 +142,14 @@ star_jobid+=($(sbatch --parsable \
   --mem=100G \
   --cpus-per-task=16 \
   --time=24:00:00 \
-  --array 1-${#samples[@]}%${simul_array_runs} \
-  --job-name=${run}.star_align \
-  --output=log/${run}/star/%A_%a.out \
+  --array 1-${#samples[@]}%${simul_array_run_ids} \
+  --job-name=${run_id}.star_align \
+  --output=${project_data_folder}/log/${run_id}/star/%A_%a.out \
   --dependency=aftercorr:${trim_jobid} \
   --export=ALL \
   "${scriptdir}/star_align.sh"
 ))
 info "STAR alignment jobid: ${star_jobid[@]}"
-
 
 # Step 4: Create bam index file and generate mapping statistics with samtools
 samtools_jobid=()
@@ -163,9 +158,9 @@ samtools_jobid+=($(sbatch --parsable \
   --cpus-per-task=16 \
   --gres=tmpspace:100G \
   --time=24:00:00 \
-  --job-name=${run}.samtools \
-  --array 1-${#samples[@]}%${simul_array_runs} \
-  --output=log/${run}/samtools/%A_%a.out \
+  --job-name=${run_id}.samtools \
+  --array 1-${#samples[@]}%${simul_array_run_ids} \
+  --output=${project_data_folder}/log/${run_id}/samtools/%A_%a.out \
   --dependency=aftercorr:${star_jobid} \
   --export=ALL \
   "${scriptdir}/samtools.sh"

@@ -3,7 +3,7 @@
 set -uo pipefail
 
 # Get correct files
-mapfile -t sample_ids < sample_ids.txt
+mapfile -t sample_ids < ${project_data_folder}/documentation/sample_ids.txt
 sample_id="${sample_ids[$((SLURM_ARRAY_TASK_ID-1))]}"
 bam="${sample_id}.Aligned.out.bam"
 new_bam="${sample_id}.Aligned.sortedByCoord.out.bam"

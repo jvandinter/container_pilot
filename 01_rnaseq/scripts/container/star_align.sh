@@ -2,13 +2,10 @@
 
 set -uo pipefail
 
-# Load correct modules
-module load STAR/${star_version}
-
 # Load files
-mapfile -t r1_files < r1_files.txt
-mapfile -t r2_files < r2_files.txt
-mapfile -t sample_ids < sample_ids.txt
+mapfile -t r1_files < ${project_data_folder}/documentation/r1_files.txt
+mapfile -t r2_files < ${project_data_folder}/documentation/r2_files.txt
+mapfile -t sample_ids < ${project_data_folder}/documentation/sample_ids.txt
 
 r1_file="${r1_files[$((SLURM_ARRAY_TASK_ID-1))]}"
 r2_file="${r2_files[$((SLURM_ARRAY_TASK_ID-1))]}"

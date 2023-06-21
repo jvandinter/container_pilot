@@ -3,16 +3,16 @@
 set -uo pipefail
 
 # Load files
-mapfile -t r1_files < r1_files.txt
-mapfile -t r2_files < r2_files.txt
-mapfile -t sample_ids < sample_ids.txt
+mapfile -t r1_files < ${project_data_folder}/documentation/r1_files.txt
+mapfile -t r2_files < ${project_data_folder}/documentation/r2_files.txt
+mapfile -t sample_ids < ${project_data_folder}/documentation/sample_ids.txt
 
 r1_file="${r1_files[$((SLURM_ARRAY_TASK_ID-1))]}"
 r2_file="${r2_files[$((SLURM_ARRAY_TASK_ID-1))]}"
 sample_id="${sample_ids[$((SLURM_ARRAY_TASK_ID-1))]}"
 
 # Create output dirs
-mkdir -p "${outdir}/check_strandedness"
+mkdir -p "${outdir}/check_strandedness/${sample_id}"
 cd "${outdir}/check_strandedness"
 
 # Check whether script needs to run
@@ -22,7 +22,7 @@ if [[ -s "${outdir}/check_strandedness/${sample_id}.txt" ]]; then
 fi
 
 # Infer strandedness
-apptainer exec -B "/hpc:/hpc" --env "LC_ALL=C.UTF-8" ${container_dir}/howarewestrandedhere-1.0.1.sif check_strandedness \
+apptainer exec -B "/hpc:/hpc" --env "LC_ALL=C.UTF-8" ${container_dir}/howarewestrandedhere-1.0.1a.sif check_strandedness \
   -g ${reference_gtf} \
   -n 1000000 \
   -r1 ${r1_file} \
