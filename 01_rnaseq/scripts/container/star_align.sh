@@ -3,9 +3,9 @@
 set -uo pipefail
 
 # Load files
-mapfile -t r1_files < ${project_data_folder}/documentation/r1_files.txt
-mapfile -t r2_files < ${project_data_folder}/documentation/r2_files.txt
-mapfile -t sample_ids < ${project_data_folder}/documentation/sample_ids.txt
+mapfile -t r1_files < ${project_folder}/documentation/r1_files.txt
+mapfile -t r2_files < ${project_folder}/documentation/r2_files.txt
+mapfile -t sample_ids < ${project_folder}/documentation/sample_ids.txt
 
 r1_file="${r1_files[$((SLURM_ARRAY_TASK_ID-1))]}"
 r2_file="${r2_files[$((SLURM_ARRAY_TASK_ID-1))]}"
@@ -14,8 +14,8 @@ sample_id="${sample_ids[$((SLURM_ARRAY_TASK_ID-1))]}"
 new_bam="${sample_id}.Aligned.sortedByCoord.out.bam"
 r1_filename=$(basename ${r1_file})
 r2_filename=$(basename ${r2_file})
-r1_trimmed="${r1_filename/_R1_/R1_trimmed_}"
-r2_trimmed="${r2_filename/_R2_/R2_trimmed_}"
+r1_trimmed="${r1_filename/_R1_/_R1_trimmed_}"
+r2_trimmed="${r2_filename/_R2_/_R2_trimmed_}"
 
 # Create output dirs
 cd "${outdir}"

@@ -92,12 +92,12 @@ run_id=$(uuidgen | tr '-' ' ' | awk '{print $1}')
 echo "$(date '+%Y-%m-%d %H:%M:%S') Finding samples..."
 get_samples $project_data_folder $data_folder $paired_end
 
-printf "%s\n" "${r1_files[@]}" > documentation/r1_files.txt
-printf "%s\n" "${r2_files[@]}" > documentation/r2_files.txt
-printf "%s\n" "${sample_ids[@]}" > documentation/sample_ids.txt
+printf "%s\n" "${r1_files[@]}" > ${project_folder}/documentation/r1_files.txt
+printf "%s\n" "${r2_files[@]}" > ${project_folder}/documentation/r2_files.txt
+printf "%s\n" "${sample_ids[@]}" > ${project_folder}/documentation/sample_ids.txt
 
 # Create output directories
-mkdir -p ${project_data_folder}/log/${run_id}/{trimgalore,star,samtools,howarewestrandedhere} 
+mkdir -p ${project_folder}/log/${run_id}/{trimgalore,star,samtools,howarewestrandedhere} 
 mkdir -p ${outdir}
 
 ##############################################################################
@@ -109,9 +109,9 @@ trim_jobid+=($(sbatch --parsable \
   --mem=24G \
   --cpus-per-task=4 \
   --time=24:00:00 \
-  --array 1-${#samples[@]}%${simul_array_run_ids} \
+  --array 1-${#samples[@]}%${simul_array_runs} \
   --job-name=${run_id}.trimgalore \
-  --output=${project_data_folder}/log/${run_id}/trimgalore/%A_%a.out \
+  --output=${project_folder}/log/${run_id}/trimgalore/%A_%a.out \
   --export=ALL \
   "${scriptdir}/trimgalore.sh"
 ))
@@ -127,9 +127,9 @@ strand_jobid+=($(sbatch --parsable \
   --mem=10G \
   --cpus-per-task=2 \
   --time=24:00:00 \
-  --array 1-${#samples[@]}%${simul_array_run_ids} \
+  --array 1-${#samples[@]}%${simul_array_runs} \
   --job-name=${run_id}.howarewestrandedhere \
-  --output=${project_data_folder}/log/${run_id}/howarewestrandedhere/%A_%a.out \
+  --output=${project_folder}/log/${run_id}/howarewestrandedhere/%A_%a.out \
   --export=ALL \
   "${scriptdir}/check_strand.sh"
 ))
@@ -142,9 +142,9 @@ star_jobid+=($(sbatch --parsable \
   --mem=100G \
   --cpus-per-task=16 \
   --time=24:00:00 \
-  --array 1-${#samples[@]}%${simul_array_run_ids} \
+  --array 1-${#samples[@]}%${simul_array_runs} \
   --job-name=${run_id}.star_align \
-  --output=${project_data_folder}/log/${run_id}/star/%A_%a.out \
+  --output=${project_folder}/log/${run_id}/star/%A_%a.out \
   --dependency=aftercorr:${trim_jobid} \
   --export=ALL \
   "${scriptdir}/star_align.sh"
@@ -159,8 +159,8 @@ samtools_jobid+=($(sbatch --parsable \
   --gres=tmpspace:100G \
   --time=24:00:00 \
   --job-name=${run_id}.samtools \
-  --array 1-${#samples[@]}%${simul_array_run_ids} \
-  --output=${project_data_folder}/log/${run_id}/samtools/%A_%a.out \
+  --array 1-${#samples[@]}%${simul_array_runs} \
+  --output=${project_folder}/log/${run_id}/samtools/%A_%a.out \
   --dependency=aftercorr:${star_jobid} \
   --export=ALL \
   "${scriptdir}/samtools.sh"

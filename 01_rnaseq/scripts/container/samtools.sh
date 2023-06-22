@@ -3,7 +3,7 @@
 set -uo pipefail
 
 # Get correct files
-mapfile -t sample_ids < ${project_data_folder}/documentation/sample_ids.txt
+mapfile -t sample_ids < ${project_folder}/documentation/sample_ids.txt
 sample_id="${sample_ids[$((SLURM_ARRAY_TASK_ID-1))]}"
 bam="${sample_id}.Aligned.out.bam"
 new_bam="${sample_id}.Aligned.sortedByCoord.out.bam"
@@ -22,7 +22,7 @@ if ! [[ -s "${outdir}/star/${sample_id}/${bam}" ]]; then
 fi
 
 # Sort BAM
-apptainer exec -B /hpc:/hpc ${container_dir}/samtools-1.12.sif samtools sort \
+apptainer exec -B /hpc:/hpc,${TMPDIR}:${TMPDIR} ${container_dir}/samtools-1.12.sif samtools sort \
   -@ 8 \
   -l 9 \
   -o "${outdir}/star/${sample_id}/${new_bam}" \
