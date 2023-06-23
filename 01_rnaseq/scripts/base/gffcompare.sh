@@ -6,7 +6,7 @@ set -uo pipefail
 module load gffcompare/${gffcompare_version}
 
 # Load sample ids
-mapfile -t sample_ids < sample_ids.txt
+mapfile -t sample_ids < ${project_folder}/documentation/sample_ids.txt
 sample_id="${sample_ids[$((SLURM_ARRAY_TASK_ID-1))]}"
 
 # Check whether script needs to run

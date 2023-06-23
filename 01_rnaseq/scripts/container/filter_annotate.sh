@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Load modules
-module load R/${r_version}
-
 # Check whether script needs to run
 if [[ -f "${outdir}/customannotation/${merged_gtf_basename}_novel_filtered.gtf" ]]; then
   echo "Merged filtered annotated GTF already present"

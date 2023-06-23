@@ -540,8 +540,8 @@ message(paste(Sys.time(), "Exporting custom gtf ... Done!"), sep = "\t")
 
 # Plot class code distribution --------------------------------------------
 message(paste(Sys.time(), "Plotting transcript classes ... "), sep = "\t")
-class_data <- gtf_unique_df[gtf_unique_df$type == "transcript" &
-                              !(is.na(gtf_unique_df$class_code)), c("class_code", "transcript_id")]
+class_data <- gtf_unique_df[gtf_novel_processed_final$type == "transcript" &
+                              !(is.na(gtf_novel_processed_final$class_code)), c("class_code", "transcript_id")]
 
 ggplot(class_data) +
   geom_bar(aes(x = class_code, y = stat(count), fill = class_code)) +

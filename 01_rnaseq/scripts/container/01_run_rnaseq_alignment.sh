@@ -133,7 +133,6 @@ strand_jobid+=($(sbatch --parsable \
   --export=ALL \
   "${scriptdir}/check_strand.sh"
 ))
-
 info "Howarewestrandedhere jobid: ${strand_jobid[@]}"
 
 # Step 3: Align with STAR

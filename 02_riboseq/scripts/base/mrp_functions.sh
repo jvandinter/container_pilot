@@ -1,5 +1,25 @@
 #!/bin/bash
 
+function check_annotation() {
+
+    # Check whether to use a custom GTF / Rannot or use the prebuild
+    # reference GTF / Rannot
+
+    reference_annotation=$1
+    reference_gtf=$2
+    reference_annotation_package=$3
+    custom_annotation=$4
+    custom_gtf=$5
+    custom_annotation_package=$6
+
+    gtf=${custom_gtf:-$reference_gtf}
+    rannot=${custom_annotation:-$reference_annotation}
+    annotation_package=${custom_annotation_package:-$reference_annotation_package}
+
+    annot_name=$(basename ${rannot%.gtf_Rannot})
+    annot_name=${annot_name#Homo_sapiens*.*}
+}
+
 function info() {
     echo "INFO: $@" >&2
 }
@@ -10,14 +30,15 @@ function fatal() {
     echo "ERR:  $@" >&2
     exit 1
 }
+
 function get_samples() {
 
-  # Retrieves sample data from a project data folder, validates file format,
-  # and extracts sample IDs from fastq files.
+    # Retrieves sample data from a project data folder, validates file format,
+    # and extracts sample IDs from fastq files.
 
   project_data_folder=$1
   data_folder=$2
-  paired_end=${3:-true}
+  paired_end=${3:-false}
   
   # Check whether the files are in correct format
   if [[ $(ls ${project_data_folder}/*.fastq.gz | wc -l) -eq 0 ]]; then
@@ -25,36 +46,15 @@ function get_samples() {
   else
     # Find unique R1 filenames and get corresponding R1/R2 fastq files
     r1_files=()
-    r2_files=()
-    if [[ "${paired_end,,}" == "true" ]]; then
-      readarray -t r1_filenames_raw < <(find "${project_data_folder}" -maxdepth 1 -name "*_R1*" -printf '%f\n' | sort -u)
-      for r1_filename in "${r1_filenames_raw[@]}"; do
-        # If r1_filename is a symlink, find original file
-        if [[ -L "${project_data_folder}/${r1_filename}" ]]; then
-            r1_file="$(readlink -f "${project_data_folder}/${r1_filename}")"
-        else
-            r1_file="${project_data_folder}/${r1_filename}"
-        fi
-        r2_file="$(echo "${r1_file}" | sed 's/_R1_/_R2_/')"
-
-        if [[ ! -f "${r2_file}" ]]; then
-          fatal "R2 file ${r2_file} not found for ${r1_file}"
-        fi
-        
-        r1_files+=("${r1_file}")
-        r2_files+=("${r2_file}")
-      done
-    else
-      readarray -t r1_filenames < <(find "${project_data_folder}" -maxdepth 1 -name "*_R1*" -printf '%f\n' | sort -u)
-      for r1_filename in "${r1_filenames[@]}"; do
+    readarray -t r1_filenames < <(find "${project_data_folder}" -maxdepth 1 -name "*fastq.gz" -printf '%f\n' | sort -u)
+      for r1_filename in "${r1_filenames[@]}"; dof
         if [[ -L "${project_data_folder}/${r1_filename}" ]]; then
             r1_file="$(readlink -f "${project_data_folder}/${r1_filename}")"
         else
             r1_file="${project_data_folder}/${r1_filename}"
         fi
         r1_files+=("${r1_file}")
-      done
-    fi
+    done
   fi
 
   # Initiate arrays
@@ -79,8 +79,4 @@ function get_samples() {
     info "$((i+1))    ${samples[i]}"
   done
 
-  # export r1_files=${r1_files[@]}
-  # export r2_files=${r2_files[@]}
-  # export sample_ids=${sample_ids[@]}
-  # export samples=${samples[@]}
 }

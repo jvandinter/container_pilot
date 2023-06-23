@@ -3,14 +3,10 @@
 set -uo pipefail
 
 # Get sample IDs
-mapfile -t sample_ids < sample_ids.txt
+mapfile -t sample_ids < ${project_folder}/documentation/sample_ids.txt
 
 # Get gtfmergefile
 gtfmergefile="${outdir}/stringtie/gtfmergefile.txt"
-
-# Load modules
-module load stringtie/${stringtie_version}
-module load gffcompare/${gffcompare_version}
 
 # Check whether script needs to run
 if [[ -f "${outdir}/stringtie/${merged_gtf_basename}/${merged_gtf_basename}.gtf" ]]; then
@@ -26,8 +22,8 @@ cd "${outdir}/stringtie/${merged_gtf_basename}/"
 echo "`date` running Stringtie --merge"
 
 # Run stringtie merge
-stringtie --version
-stringtie ${gtfmergefile} \
+apptainer exec -B /hpc:/hpc ${container_dir}/stringtie-2.1.5.sif stringtie --version
+apptainer exec -B /hpc:/hpc ${container_dir}/stringtie-2.1.5.sif stringtie ${gtfmergefile} \
   --merge \
   -G ${reference_gtf} \
   -f 0.05 \
@@ -44,7 +40,8 @@ echo "`date` running GFFcompare for annotation"
 cd "${outdir}/gffcompare/${merged_gtf_basename}/"
 
 # Run GFFcompare to annotate novel assembly .GTF
-gffcompare \
+apptainer exec -B /hpc:/hpc ${container_dir}/gffcompare-0.12.6.sif gffcompare
+apptainer exec -B /hpc:/hpc ${container_dir}/gffcompare-0.12.6.sif gffcompare \
   -V \
   -r ${reference_gtf} \
   -s ${masked_fasta} \
@@ -59,7 +56,7 @@ for i in ${!sample_ids[@]}; do
   gtf_list[i]="${outdir}/stringtie/${sample_ids[i]}/${sample_ids[i]}.gtf"
 done
 
-gffcompare \
+apptainer exec -B /hpc:/hpc ${container_dir}/gffcompare-0.12.6.sif gffcompare \
   -V \
   -r "${outdir}/gffcompare/${merged_gtf_basename}/${merged_gtf_basename}_gffcompare.annotated.gtf" \
   -o "${merged_gtf_basename}_matching" \

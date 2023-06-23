@@ -77,10 +77,10 @@ get_samples $project_data_folder $data_folder $paired_end
 
 # Create a unique prefix for the names for this run of the pipeline. 
 # This makes sure that runs can be identified
-run=$(uuidgen | tr '-' ' ' | awk '{print $1}')
+run_id=$(uuidgen | tr '-' ' ' | awk '{print $1}')
 
 # Create output directories
-mkdir -p log/${run}/{gffcompare,stringtie,salmon_quant}
+mkdir -p ${project_folder}/log/${run_id}/{gffcompare,stringtie,salmon_quant}
 
 ################################################################################
 
@@ -91,8 +91,8 @@ stringtie_jobid+=($(sbatch --parsable \
   --cpus-per-task=4 \
   --time=24:00:00 \
   --array 1-${#samples[@]}%${simul_array_runs} \
-  --job-name=${run}.stringtie \
-  --output=log/${run}/stringtie/%A_%a.out \
+  --job-name=${run_id}.stringtie \
+  --output=${project_folder}/log/${run_id}/stringtie/%A_%a.out \
   --export=ALL\
   ${scriptdir}/stringtie.sh
 ))
@@ -105,8 +105,8 @@ gffcompare_jobid+=($(sbatch --parsable \
   --cpus-per-task=2 \
   --time=24:00:00 \
   --array 1-${#samples[@]}%${simul_array_runs} \
-  --job-name=${run}.gffcompare \
-  --output=log/${run}/gffcompare/%A_%a \
+  --job-name=${run_id}.gffcompare \
+  --output=${project_folder}/log/${run_id}/gffcompare/%A_%a \
   --dependency=aftercorr:${stringtie_jobid} \
   --export=ALL \
   ${scriptdir}/gffcompare.sh
@@ -119,8 +119,8 @@ stringtie_merge_jobid+=($(sbatch --parsable \
   --mem=24G \
   --cpus-per-task=4 \
   --time=24:00:00 \
-  --job-name=${run}.stringtie_merge \
-  --output=log/${run}/%A_stringtie_merge.out \
+  --job-name=${run_id}.stringtie_merge \
+  --output=${project_folder}/log/${run_id}/%A_stringtie_merge.out \
   --dependency=afterany:${stringtie_jobid} \
   --export=ALL \
   ${scriptdir}/stringtie_merge.sh
@@ -133,8 +133,8 @@ filter_annotate_jobid+=($(sbatch --parsable \
   --mem=24G \
   --cpus-per-task=2 \
   --time=24:00:00 \
-  --job-name=${run}.filter_annotate \
-  --output=log/${run}/%A_filter_annotate.out \
+  --job-name=${run_id}.filter_annotate \
+  --output=${project_folder}/log/${run_id}/%A_filter_annotate.out \
   --dependency=afterany:${stringtie_merge_jobid} \
   --export=ALL \
   ${scriptdir}/filter_annotate.sh
@@ -150,8 +150,8 @@ if [[ ${create_annotation} =~ "TRUE" ]]; then
       --cpus-per-task=2 \
       --gres=tmpspace:50G \
       --time=24:00:00 \
-      --job-name=${run}.custom_annotation \
-      --output=log/${run}/%A_custom_annotation.out \
+      --job-name=${run_id}.custom_annotation \
+      --output=${project_folder}/log/${run_id}/%A_custom_annotation.out \
       --dependency=afterok:${filter_annotate_jobid} \
       --export=ALL \
       ${scriptdir}/custom_annotation.sh

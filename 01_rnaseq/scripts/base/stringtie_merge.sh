@@ -3,7 +3,7 @@
 set -uo pipefail
 
 # Get sample IDs
-mapfile -t sample_ids < sample_ids.txt
+mapfile -t sample_ids < ${project_folder}/documentation/sample_ids.txt
 
 # Get gtfmergefile
 gtfmergefile="${outdir}/stringtie/gtfmergefile.txt"
