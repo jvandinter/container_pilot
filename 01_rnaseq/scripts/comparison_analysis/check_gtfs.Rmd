@@ -1,0 +1,140 @@
+---
+title: "RNAseq Pipeline Comparison"
+author: "JD"
+date: "2023-06-26"
+output: html_document
+---
+
+## Introduction
+
+This RMD contains scripts and figures to compare the van Heesch RNA-seq pipeline,
+both for CentOS7 module style and for Rocky8 with apptainer containers
+
+```{r libraries}
+library(rtracklayer)
+library(magrittr)
+library(ggplot2)
+```
+
+```{r parameters}
+wd="/hpc/pmc_vanheesch/projects/Jip/pilots/20230606_JD_containers/01_rnaseq"
+```
+
+## Stringtie
+
+check stringtie GTF
+```{r}
+base_gtf <- rtracklayer::import(paste(wd,"analysis","base","stringtie",
+                                      "BG96_HM1DCTRL_S13_L001","BG96_HM1DCTRL_S13_L001.gtf",sep="/")) 
+container_gtf  <- rtracklayer::import(paste(wd,"analysis","container","stringtie",
+                                      "BG96_HM1DCTRL_S13_L001","BG96_HM1DCTRL_S13_L001.gtf",sep="/")) 
+
+length(base_gtf) - length(container_gtf)
+```
+
+For some reason, 35 rows in the GTF are different.
+
+```{r }
+length(unique(container_gtf$transcript_id))
+length(unique(base_gtf$transcript_id))
+```
+
+There are 2 transcripts missing in the base GTF
+
+## Stringtie merge
+
+```{r}
+base_merged_gffcompare_gtf <- rtracklayer::import(paste(wd,"analysis",
+                                                        "base","gffcompare","base_merged","base_merged_gffcompare.annotated.gtf", sep = "/"))
+
+container_merged_gffcompare_gtf <- rtracklayer::import(paste(wd,"analysis",
+                                                        "container","gffcompare","container_pancreas","container_pancreas_gffcompare.annotated.gtf", sep = "/"))
+
+length(base_merged_gffcompare_gtf) - length(container_merged_gffcompare_gtf)
+```
+Now we suddenly have a difference of 1400 lines in the Granges, where the base
+has more far more lines. This is the biggest difference so far
+
+```{r}
+length(unique(base_merged_gffcompare_gtf$transcript_id))
+length(unique(container_merged_gffcompare_gtf$transcript_id))
+```
+
+Now, we miss 76 transcripts that are not present in the container pipeline 
+compared to the base pipeline
+
+```{r}
+base_novel_df <- as.data.frame(base_merged_gffcompare_gtf) %>%
+  dplyr::filter(!(class_code == "="))
+  
+container_novel_df <- as.data.frame(container_merged_gffcompare_gtf) %>%
+  dplyr::filter(!(class_code == "="))
+
+table(base_novel_df$class_code)
+table(container_novel_df$class_code)
+```
+
+## Filtered GTF
+
+```{r}
+base_filter_gtf <- rtracklayer::import(paste(wd,"analysis","base","customannotation",
+                                             "base_merged_novel_filtered.gtf", sep = "/")
+)
+
+container_filter_gtf <- rtracklayer::import(paste(wd,"analysis","container","customannotation",
+                                             "container_pancreas_novel_filtered.gtf", sep = "/")
+)
+
+length(base_filter_gtf) - length(container_filter_gtf)
+```
+
+Now, there is a different of 56 more lines in the container version (in 3 million, that is not a lot)
+
+```{r}
+length(unique(base_filter_gtf$transcript_id))
+
+length(unique(container_filter_gtf$transcript_id))
+```
+
+the container version has 2 more TXs
+
+```{r missing TXs}
+base_diff <- setdiff(base_filter_gtf, container_filter_gtf)
+container_diff <- setdiff(container_filter_gtf,base_filter_gtf)
+```
+
+In total, there are 5 ranges extra ranges in container DF and none in base diff. 
+This seems small enough to disregard
+
+```{r}
+base_novel_df <- as.data.frame(base_filter_gtf) %>%
+  dplyr::filter(!(class_code == "="))
+base_novel_df <- as.data.frame(table(base_novel_df$class_code)) %>%
+  dplyr::mutate(type = "base")
+
+container_novel_df <- as.data.frame(container_filter_gtf) %>%
+  dplyr::filter(!(class_code == "="))
+container_novel_df <- as.data.frame(table(container_novel_df$class_code)) %>%
+  dplyr::mutate(type = "container")
+
+plot_df <- rbind(container_novel_df, base_novel_df)
+colnames(plot_df) <- c("class_code","count","type")
+
+base_df <- as.data.frame(table(base_novel_df$class_code)
+table(container_novel_df$class_code)
+```
+
+```{r plot difference}
+
+ggplot(plot_df, aes(x = class_code, y = count, fill = type,
+                    group = type, label = count,
+                    after_scale(alpha(fill, 0.4)))) +
+  geom_bar(position = "dodge",stat = "identity") +
+  geom_text(stat='identity', position = position_dodge(width = .9), vjust = -.3, size = 3.5) +
+  scale_fill_manual(values = viridis::viridis(2, begin = .2, end = .6)) +
+  theme_classic() +
+  scale_y_log10() +
+  theme(axis.text.y=element_blank(),axis.ticks=element_blank(),
+          axis.title.y=element_blank())
+
+```
