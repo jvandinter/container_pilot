@@ -137,4 +137,6 @@ ggplot(plot_df, aes(x = class_code, y = count, fill = type,
   theme(axis.text.y=element_blank(),axis.ticks=element_blank(),
           axis.title.y=element_blank())
 
+ggsave(filename = paste(wd,"results","comparison_analysis","merged_annotated_gtf_comparison.pdf", sep ="/"))
+
 ```
