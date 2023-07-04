@@ -100,6 +100,7 @@ the container version has 2 more TXs
 
 ```{r missing TXs}
 base_diff <- setdiff(base_filter_gtf, container_filter_gtf)
+based_diff_df <- as.data.frame(base_diff)
 container_diff <- setdiff(container_filter_gtf,base_filter_gtf)
 ```
 
@@ -140,3 +141,19 @@ ggplot(plot_df, aes(x = class_code, y = count, fill = type,
 ggsave(filename = paste(wd,"results","comparison_analysis","merged_annotated_gtf_comparison.pdf", sep ="/"))
 
 ```
+
+## GFFcompare GTF
+
+```{r }
+compare_gtf <- rtracklayer::import(paste(wd,"analysis","gffcompare","pipeline_comparison","container_vs_base_comparison_gffcompare.annotated.gtf",sep="/"))
+
+compare_df <- as.data.frame(compare_gtf) %>%
+  dplyr::filter(type == "transcript" & class_code %in% c("j","k"))
+table(compare_df$class_code)
+
+```
+
+Only 7 transcripts have a different exon structure according to GFFcompare
+
+**After manual inspection, they look better in the container version than in the**
+**container version.**

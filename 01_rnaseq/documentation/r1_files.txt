@@ -1,0 +1,6 @@
+/hpc/pmc_vanheesch/data/external/rnaseq/poly_a_enriched/20210209_JD_golden_standard/BG100_HM1DCTRL_S13_L001_R1_001.fastq.gz
+/hpc/pmc_vanheesch/data/external/rnaseq/poly_a_enriched/20210209_JD_golden_standard/BG101_HM1DCTRL_S13_L001_R1_001.fastq.gz
+/hpc/pmc_vanheesch/data/external/rnaseq/poly_a_enriched/20210209_JD_golden_standard/BG96_HM1DCTRL_S13_L001_R1_001.fastq.gz
+/hpc/pmc_vanheesch/data/external/rnaseq/poly_a_enriched/20210209_JD_golden_standard/BG97_HM1DCTRL_S13_L001_R1_001.fastq.gz
+/hpc/pmc_vanheesch/data/external/rnaseq/poly_a_enriched/20210209_JD_golden_standard/BG98_HM1DCTRL_S13_L001_R1_001.fastq.gz
+/hpc/pmc_vanheesch/data/external/rnaseq/poly_a_enriched/20210209_JD_golden_standard/BG99_HM1DCTRL_S13_L001_R1_001.fastq.gz

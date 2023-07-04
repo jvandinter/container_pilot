@@ -3,16 +3,17 @@
 !README.md
 
 # Ignore all files named .DS_Store or ending with .log
+
 **/.DS_Store
 **/._*
 **.log
 **.out
 
-# Ignore files from analysis and data
+# Ignore files from analysis, results, data and log
 */data/*
 */analysis/*
 */results/*
-
+*/log/*
 
 # Include script files
 !*/scripts/*
