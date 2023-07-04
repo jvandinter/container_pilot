@@ -110,7 +110,7 @@ trim_jobid+=($(sbatch --parsable \
   --cpus-per-task=${high_cpu} \
   --time=24:00:00 \
   --array 1-${#samples[@]}%${simul_array_runs} \
-  --job-name=${run}.trimgalore \
+  --job-name=${run_id}.trimgalore \
   --output=${project_folder}/log/${run_id}/trimgalore/%A_%a.out \
   --export=ALL \
   ${scriptdir}/mrp_trimgalore.sh 
@@ -136,7 +136,7 @@ contaminant_jobid+=($(sbatch --parsable \
   --cpus-per-task=${medium_cpu} \
   --time=24:00:00 \
   --array 1-${#samples[@]}%${simul_array_runs} \
-  --job-name=${run}.contaminants \
+  --job-name=${run_id}.contaminants \
   --output=${project_folder}/log/${run_id}/bowtie2/%A_%a.out \
   --dependency=aftercorr:${trim_jobid} \
   --export=ALL \
@@ -161,7 +161,7 @@ star_jobid+=($(sbatch --parsable \
   --cpus-per-task=${high_cpu} \
   --time=24:00:00 \
   --array 1-${#samples[@]}%${simul_array_runs} \
-  --job-name=${run}.star_align \
+  --job-name=${run_id}.star_align \
   --output=${project_folder}/log/${run_id}/star_align/%A_%a.out \
   --dependency=aftercorr:${contaminant_jobid} \
   --export=ALL \
@@ -182,7 +182,7 @@ riboseqc_jobid+=($(sbatch --parsable \
   --cpus-per-task=${medium_cpu} \
   --time=24:00:00 \
   --array 1-${#samples[@]}%${simul_array_runs} \
-  --job-name=${run}.riboseqc \
+  --job-name=${run_id}.riboseqc \
   --output=${project_folder}/log/${run_id}/riboseqc/%A_%a.out \
   --dependency=aftercorr:${star_jobid} \
   --export=ALL \
@@ -196,19 +196,19 @@ echo -e "=======================================================================
 
 # 5. MultiQC.
 
-multiqc_jobid=()
+# multiqc_jobid=()
 
-multiqc_jobid+=($(sbatch --parsable \
-  --mem=${low_mem} \
-  --cpus-per-task=${low_cpu} \
-  --time=24:00:00 \
-  --job-name=${run}.multiqc \
-  --output=${project_folder}/log/${run_id}/%A_multiqc.out \
-  --dependency=afterok:${riboseqc_jobid} \
-  --export=ALL \
-  ${scriptdir}/mrp_multiqc.sh
-))
+# multiqc_jobid+=($(sbatch --parsable \
+#   --mem=${low_mem} \
+#   --cpus-per-task=${low_cpu} \
+#   --time=24:00:00 \
+#   --job-name=${run_id}.multiqc \
+#   --output=${project_folder}/log/${run_id}/%A_multiqc.out \
+#   --dependency=afterok:${riboseqc_jobid} \
+#   --export=ALL \
+#   ${scriptdir}/mrp_multiqc.sh
+# ))
 
-info "MultiQC jobid: ${multiqc_jobid[@]}"
+# info "MultiQC jobid: ${multiqc_jobid[@]}"
 
 echo -e "\n ====== `date` Started all jobs! ====== \n"

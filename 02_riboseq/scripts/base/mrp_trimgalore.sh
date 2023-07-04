@@ -8,42 +8,37 @@
 #
 ######################################################################
 
-# Load parameters from main script
-source $1
-source $2
-
 # Load correct modules
 module load cutadapt/${cutadapt_version}
 module load fastqc/${fastqc_version}
 module load trimgalore/${trimgalore_version}
 
-# Get correct files
-get_samples ${wd} ${data_folder}
+# Load files
+mapfile -t r1_files < ${project_folder}/documentation/r1_files.txt
+mapfile -t sample_ids < ${project_folder}/documentation/sample_ids.txt
 
-full_path_fastq="${fastq_files[$((SLURM_ARRAY_TASK_ID-1))]}"
+# Set names
 sample_id="${sample_ids[$((SLURM_ARRAY_TASK_ID-1))]}"
-fastq=$(basename ${full_path_fastq})
+r1_file="${r1_files[$((SLURM_ARRAY_TASK_ID-1))]}"
+r1_filename=$(basename ${r1_file})
+
+# Create output dirs
+cd "${outdir}"
+mkdir -p "trimgalore/${sample_id}/"
 
 # Check whether script needs to run
-if [[ -f "${wd}/data/processed/trimgalore/${sample_id}/${fastq}" ]]; then
-  echo "${sample_id} already trimmed"
+if [[ -f "${outdir}/trimgalore/${sample_id}/${r1_filename/_R1_/_R1_trimmed_}" ]]; then
+  echo "`date` ${sample_id} file already present"
   exit 0
 fi
 
 echo "`date` running trimgalore for ${sample_id}"
-
-# Create output dirs
-cd "${wd}/data/processed"
-mkdir -p "trimgalore/${sample_id}/"
-
-# Run trimgalore on both reads
 cutadapt --version
 fastqc --version
 
-# Change names of trimgalore output
-cd "$wd/data/processed/trimgalore/${sample_id}/"
+cd "${outdir}/trimgalore/${sample_id}/"
 
-trim_galore "${full_path_fastq}" \
+trim_galore "${r1_file}" \
   --cores 2 \
   --gzip \
   --length 25 \
@@ -52,15 +47,14 @@ trim_galore "${full_path_fastq}" \
   --fastqc_args "--outdir ${wd}/data/processed/trimgalore/${sample_id}/" \
   --output_dir "$wd//data/processed/trimgalore/${sample_id}/"
 
-mv "${wd}/data/processed/trimgalore/${sample_id}/${fastq%.*.*}_trimmed.fq.gz" "${wd}/data/processed/trimgalore/${sample_id}/${fastq}"
+mv "${outdir}/trimgalore/${sample_id}/${fastq%.*.*}_trimmed.fq.gz" "${outdir}/trimgalore/${sample_id}/${fastq}"
 
 # Calculate trimcounts per paired fastq
-tot_reads_1=$(zcat "${full_path_fastq}" | echo $((`wc -l`/4)))
-
-trimmed_reads_1=$(zcat "${wd}/data/processed/trimgalore/${sample_id}/${fastq}" | echo $((`wc -l`/4)))
-trimmed_percentage_1=`awk -vn=248 "BEGIN{print(${trimmed_reads_1}/${tot_reads_1}*100)}"`
+tot_reads=$(zcat "${r1_file}" | echo $((`wc -l`/4)))
+trimmed_reads=$(zcat "${outdir}/trimgalore/${sample_id}/${r1_trimmed}" | echo $((`wc -l`/4)))
+trimmed_percentage=`awk -vn=248 "BEGIN{print(${trimmed_reads}/${tot_reads}*100)}"`
 
 # Add read trimming info to run QC file
-printf '%s\t%s\t%s\t%s\n' "${sample_id}_1" "Trimmed" $trimmed_reads_1 $trimmed_percentage_1 >> "$wd/data/processed/trim_stats.txt"
+printf '%s\t%s\t%s\t%s\n' "${sample_id}_1" "Trimmed" $trimmed_reads $trimmed_percentage >> "${outdir}/trim_stats.txt"
 
 echo "`date` finished ${sample_id}"

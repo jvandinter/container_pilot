@@ -9,32 +9,20 @@
 ######################################################################
 
 # Load parameters from main script
-source $1
-rannot=$2
-annotation_package=$3
-cpu=$4
-threads=$((cpu * 2))
 
-# Get sample IDs
-fastq_files=(${wd}/data/raw/*fastq.gz)
+threads=$((SLURM_CPUS_PER_TASK * 2))
 
-# Initiate arrays
-    sample_ids=()
+# Load files
+mapfile -t sample_ids < ${project_folder}/documentation/sample_ids.txt
 
-# Get sample IDs and barcodes from fastq files
-for i in ${!fastq_files[@]}; do
-
-    sample_ids[i]=$(basename ${fastq_files[i]} | cut -f 1 -d "_")
-
-done
-
+# Set names
 sample_id="${sample_ids[$((SLURM_ARRAY_TASK_ID-1))]}"
 
 # Load software modules
 module load R/${r_version}
 
 # Check whether script needs to run
-if [[ -f "${wd}/data/processed/RiboseQC/${sample_id}/${sample_id}.html" ]]; then
+if [[ -f "${outdir}/RiboseQC/${sample_id}/${sample_id}.html" ]]; then
   echo "`date` ${sample_id} QC report already present"
   exit 0
 fi
@@ -42,13 +30,13 @@ fi
 echo "`date` doing RIBO-seq QC for ${sample_id}"
 
 # Create output dirs
-cd "${wd}/data/processed"
+cd "${outdir}"
 mkdir -p "RiboseQC/${sample_id}/"
 
 # Use RiboSeQC to generate HTML report of the data
 Rscript "${scriptdir}/mrp_riboseqc.R" \
-  "${wd}/data/processed/star/${sample_id}/${sample_id}.Aligned.sortedByCoord.out.bam" \
-  "${wd}/data/processed/RiboseQC/${sample_id}/${sample_id}" \
+  "${outdir}/star/${sample_id}/${sample_id}.Aligned.sortedByCoord.out.bam" \
+  "${outdir}/RiboseQC/${sample_id}/${sample_id}" \
   "${rannot}" \
   "${annot_name}" \
   "${pandoc_dir}" \
