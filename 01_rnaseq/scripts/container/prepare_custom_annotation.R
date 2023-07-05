@@ -10,6 +10,8 @@
 #
 ###########################################################################
 
+
+
 # Load libraries ----------------------------------------------------------
 message("Loading required libraries ...")
 suppressPackageStartupMessages({
@@ -21,9 +23,13 @@ library(rtracklayer)
 args <- commandArgs(trailingOnly = TRUE)
 
 twobit_file <- args[1]
-merged_gtf <- args[2]  
-annot_dir <- args[3]  
+merged_gtf <- args[2]
+annot_dir <- args[3]
 annot_name <- args[4]
+package_install_loc <- args[5]
+
+paths <- c(package_install_loc,.libPaths())
+.libPaths(paths)
 
 # Prepare annotation files ------------------------------------------------
 prepare_annotation_files(annotation_directory = annot_dir, 
@@ -36,7 +42,7 @@ BSgenome_dir <- grep("BSgenome", x = list.dirs(annot_dir, recursive = F), value 
 BSgenome_package <- basename(BSgenome_dir)
 
 
-install.packages(BSgenome_dir, 
-                character.only = TRUE, 
+install.packages(BSgenome_dir,
+                character.only = TRUE,
                 repos = NULL, 
                 type="source")
