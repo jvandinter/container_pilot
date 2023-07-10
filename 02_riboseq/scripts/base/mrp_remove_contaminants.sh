@@ -42,7 +42,7 @@ bowtie2 --seedlen=25 \
   --time \
   --un-gz "${outdir}/bowtie2/${sample_id}/${sample_id}_filtered.fastq.gz" \
   -x ${bowtie2_index} \
-  -U "${outdir}/trimgalore/${sample_id}/${fastq}" \
+  -U "${outdir}/trimgalore/${sample_id}/${r1_filename}" \
   -S "${outdir}/bowtie2/${sample_id}/${sample_id}_contaminants.sam"
 
 # Create contaminant QC file
@@ -50,7 +50,7 @@ contaminants_type=$(basename $bowtie2_index)
 contaminants_file="${outdir}/bowtie2/${sample_id}/${sample_id}_${contaminants_type}.txt"
 
 # Get total number of reads
-tot_reads=$(zcat "${outdir}/trimgalore/${sample_id}/${fastq}" | echo $((`wc -l`/4)))
+tot_reads=$(zcat "${outdir}/trimgalore/${sample_id}/${r1_filename}" | echo $((`wc -l`/4)))
 echo -e "RiboseQC run for ${sample_id} on `date` \n" >> "${contaminants_file}"
 # Print headers to file
 printf '\t%s\t%s\t%s\n' "READ_TYPE" "READS" "PERCENTAGE" >> "${contaminants_file}"

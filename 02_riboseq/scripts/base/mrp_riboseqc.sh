@@ -9,7 +9,6 @@
 ######################################################################
 
 # Load parameters from main script
-
 threads=$((SLURM_CPUS_PER_TASK * 2))
 
 # Load files

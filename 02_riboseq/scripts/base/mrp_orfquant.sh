@@ -15,7 +15,6 @@ threads=$((SLURM_CPUS_PER_TASK * 2))
 module load R/${r_version}
 
 # Load files
-mapfile -t r1_files < ${project_folder}/documentation/r1_files.txt
 mapfile -t sample_ids < ${project_folder}/documentation/sample_ids.txt
 
 # Set names
@@ -34,7 +33,7 @@ cd "${outdir}/"
 mkdir -p "ORFquant/${sample_id}/"
 
 Rscript "${scriptdir}/mrp_orfquant.R" \
-  ${wd} \
+  ${outdir} \
   "${outdir}/RiboseQC/${sample_id}/${sample_id}_for_ORFquant" \
   "${sample_id}" \
   "${annot_name}" \
@@ -44,4 +43,4 @@ Rscript "${scriptdir}/mrp_orfquant.R" \
   "${resource_dir}" \
   "${annotation_package}"
 
-  echo "`date` finished ${sample_id}"
+echo "`date` finished ${sample_id}"

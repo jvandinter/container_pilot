@@ -47,7 +47,7 @@ function get_samples() {
     # Find unique R1 filenames and get corresponding R1/R2 fastq files
     r1_files=()
     readarray -t r1_filenames < <(find "${project_data_folder}" -maxdepth 1 -name "*fastq.gz" -printf '%f\n' | sort -u)
-      for r1_filename in "${r1_filenames[@]}"; dof
+      for r1_filename in "${r1_filenames[@]}"; do
         if [[ -L "${project_data_folder}/${r1_filename}" ]]; then
             r1_file="$(readlink -f "${project_data_folder}/${r1_filename}")"
         else

@@ -8,7 +8,6 @@
 #
 ######################################################################
 
-
 # Parse command-line arguments
 while [[ $# -gt 0 ]]
 do
@@ -48,11 +47,17 @@ fi
 source $CONFIG
 
 # Load general functions
-source ${scriptdir}/general_functions.sh
+source ${scriptdir}//mrp_functions.sh
 
 # Create a unique prefix for the names for this run_id of the pipeline
 # This makes sure that run_ids can be identified
 run_id=$(uuidgen | tr '-' ' ' | awk '{print $1}')
+
+################################################################################
+#
+# Find fastq samples in directory
+#
+################################################################################
 
 # Find samples
 echo "$(date '+%Y-%m-%d %H:%M:%S') Finding samples..."
@@ -61,22 +66,21 @@ get_samples $project_data_folder $data_folder
 printf "%s\n" "${r1_files[@]}" > ${project_folder}/documentation/r1_files.txt
 printf "%s\n" "${sample_ids[@]}" > ${project_folder}/documentation/sample_ids.txt
 
-# Create output directories
-mkdir -p ${project_folder}/log/${run_id}/{trimgalore,star,samtools,howarewestrandedhere} 
-mkdir -p ${outdir}
-
-################################################################################
-#
-# Find fastq samples in directory
-#
-################################################################################
-
-get_samples ${wd} ${data_folder}
-
+echo "$(date '+%Y-%m-%d %H:%M:%S') Finding Annotation..."
 check_annotation ${reference_annotation} ${reference_gtf} ${reference_annotation_package} ${custom_annotation} ${custom_gtf} ${custom_annotation_package}
 
 echo "`date` using ${annotation_package}"
 echo "`date` using ${rannot}"
+echo "`date` using ${gtf}"
+
+export annotation_package=${annotation_package}
+export rannot=${rannot}
+export gtf=${gtf}
+
+# Create output directories
+mkdir -p ${project_folder}/log/${run_id}/{trimgalore,star_align,bowtie2,riboseqc} 
+echo "`date` using run ID: ${run_id}"
+mkdir -p ${outdir}
 
 # make sure there are samples
 if [[ ${#samples[@]} -eq 0 ]]; then

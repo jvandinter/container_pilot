@@ -44,14 +44,14 @@ trim_galore "${r1_file}" \
   --length 25 \
   --trim-n \
   --fastqc \
-  --fastqc_args "--outdir ${wd}/data/processed/trimgalore/${sample_id}/" \
-  --output_dir "$wd//data/processed/trimgalore/${sample_id}/"
+  --fastqc_args "--outdir ${outdir}/trimgalore/${sample_id}/" \
+  --output_dir "${outdir}/trimgalore/${sample_id}/"
 
-mv "${outdir}/trimgalore/${sample_id}/${fastq%.*.*}_trimmed.fq.gz" "${outdir}/trimgalore/${sample_id}/${fastq}"
+mv "${outdir}/trimgalore/${sample_id}/${r1_filename%.*.*}_trimmed.fq.gz" "${outdir}/trimgalore/${sample_id}/${r1_filename}"
 
 # Calculate trimcounts per paired fastq
 tot_reads=$(zcat "${r1_file}" | echo $((`wc -l`/4)))
-trimmed_reads=$(zcat "${outdir}/trimgalore/${sample_id}/${r1_trimmed}" | echo $((`wc -l`/4)))
+trimmed_reads=$(zcat "${outdir}/trimgalore/${sample_id}/${r1_filename}" | echo $((`wc -l`/4)))
 trimmed_percentage=`awk -vn=248 "BEGIN{print(${trimmed_reads}/${tot_reads}*100)}"`
 
 # Add read trimming info to run QC file
