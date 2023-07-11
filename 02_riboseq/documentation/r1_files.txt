@@ -1,0 +1,6 @@
+/hpc/pmc_vanheesch/data/external/riboseq/20210127_JD_healthy_pancreas/BG100_3D_d11_ctrl_Riboseq_replicate5.fastq.gz
+/hpc/pmc_vanheesch/data/external/riboseq/20210127_JD_healthy_pancreas/BG101_3D_d11_ctrl_Riboseq_replicate6.fastq.gz
+/hpc/pmc_vanheesch/data/external/riboseq/20210127_JD_healthy_pancreas/BG96_3D_d11_ctrl_Riboseq_replicate1.fastq.gz
+/hpc/pmc_vanheesch/data/external/riboseq/20210127_JD_healthy_pancreas/BG97_3D_d11_ctrl_Riboseq_replicate2.fastq.gz
+/hpc/pmc_vanheesch/data/external/riboseq/20210127_JD_healthy_pancreas/BG98_3D_d11_ctrl_Riboseq_replicate3.fastq.gz
+/hpc/pmc_vanheesch/data/external/riboseq/20210127_JD_healthy_pancreas/BG99_3D_d11_ctrl_Riboseq_replicate4.fastq.gz

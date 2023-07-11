@@ -1,0 +1,6 @@
+BG100_3D_d11_ctrl
+BG101_3D_d11_ctrl
+BG96_3D_d11_ctrl
+BG97_3D_d11_ctrl
+BG98_3D_d11_ctrl
+BG99_3D_d11_ctrl

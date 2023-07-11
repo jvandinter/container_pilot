@@ -106,8 +106,8 @@ echo -e "=======================================================================
 trim_jobid=()
 
 trim_jobid+=($(sbatch --parsable \
-  --mem=${medium_mem} \
-  --cpus-per-task=${high_cpu} \
+  --mem=8G \
+  --cpus-per-task=4 \
   --time=24:00:00 \
   --array 1-${#samples[@]}%${simul_array_runs} \
   --job-name=${run_id}.trimgalore \
@@ -132,8 +132,8 @@ echo -e "=======================================================================
 contaminant_jobid=()
 
 contaminant_jobid+=($(sbatch --parsable \
-  --mem=${medium_mem} \
-  --cpus-per-task=${medium_cpu} \
+  --mem=8G \
+  --cpus-per-task=12 \
   --time=24:00:00 \
   --array 1-${#samples[@]}%${simul_array_runs} \
   --job-name=${run_id}.contaminants \
@@ -157,8 +157,8 @@ echo -e "=======================================================================
 star_jobid=()
 
 star_jobid+=($(sbatch --parsable \
-  --mem=${high_mem} \
-  --cpus-per-task=${high_cpu} \
+  --mem=80G \
+  --cpus-per-task=12 \
   --time=24:00:00 \
   --array 1-${#samples[@]}%${simul_array_runs} \
   --job-name=${run_id}.star_align \
@@ -178,8 +178,8 @@ echo -e "=======================================================================
 riboseqc_jobid=()
 
 riboseqc_jobid+=($(sbatch --parsable \
-  --mem=${medium_mem} \
-  --cpus-per-task=${medium_cpu} \
+  --mem=4G \
+  --cpus-per-task=1 \
   --time=24:00:00 \
   --array 1-${#samples[@]}%${simul_array_runs} \
   --job-name=${run_id}.riboseqc \
