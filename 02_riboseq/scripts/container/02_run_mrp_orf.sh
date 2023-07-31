@@ -72,6 +72,11 @@ check_annotation ${reference_annotation} ${reference_gtf} ${reference_annotation
 
 echo "`date` using ${annotation_package}"
 echo "`date` using ${rannot}"
+echo "`date` using ${gtf}"
+
+export annotation_package=${annotation_package}
+export rannot=${rannot}
+export gtf=${gtf}
 
 # Create output directories
 mkdir -p ${project_folder}/log/${run_id}/{trimgalore,star_align,bowtie2,riboseqc} 
@@ -106,7 +111,7 @@ orfquant_jobid=()
 orfquant_jobid+=($(sbatch --parsable \
   --mem=60G \
   --cpus-per-task=12 \
-  --time=24:00:00 \
+  --time=144:00:00 \
   --array 1-${#samples[@]}%${simul_array_runs} \
   --job-name=${run_id}.orfquant \
   --output=${project_folder}/log/${run_id}/orfquant/%A_%a.out \

@@ -39,6 +39,7 @@ apptainer exec -B "/hpc:/hpc" ${container_dir}/orfquant-4.1.2.sif \
   "${annot_name}" \
   "${pandoc_dir}" \
   "${resource_dir}" \
-  "${annotation_package}"
+  "${annotation_package}"  \
+  ${package_install_loc}
 
 echo "`date` finished ${sample_id}"

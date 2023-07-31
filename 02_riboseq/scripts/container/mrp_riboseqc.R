@@ -26,6 +26,10 @@ annot_name = args[4]
 pandoc_dir = args[5]
 resource_dir = args[6]
 annotation_package = args[7]
+package_install_loc <- args[8]
+
+paths <- c(package_install_loc,.libPaths())
+.libPaths(paths)
 
 # Define variables --------------------------------------------------------
 find_pandoc(dir = pandoc_dir)

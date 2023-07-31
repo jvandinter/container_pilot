@@ -29,6 +29,10 @@ cpu = args[6]
 pandoc_dir = args[7]
 resource_dir = args[8]
 annotation_package = args[9]
+package_install_loc <- args[10]
+
+paths <- c(package_install_loc,.libPaths())
+.libPaths(paths)
 
 # Define variables --------------------------------------------------------
 html_report = paste0(wd,"/data/processed/ORFquant/",sample_id,"/",sample_id,"_report.html")
