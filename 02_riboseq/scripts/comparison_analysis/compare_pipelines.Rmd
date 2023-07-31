@@ -1,0 +1,429 @@
+---
+title: "Ribo-seq Pipeline Comparison"
+author: "JD"
+date: "2023-07-31"
+output: html_document
+---
+
+## Intro
+
+This RMD contains scripts and figures to compare the van Heesch Ribo-seq pipeline,
+both for CentOS7 module style and for Rocky8 with apptainer containers
+
+```{r libraries}
+library(rtracklayer)
+library(magrittr)
+library(ggplot2)
+```
+
+```{r parameters}
+
+wd = "/hpc/pmc_vanheesch/projects/Jip/pilots/20230606_JD_containers/02_riboseq"
+container_loc = paste(wd,"analysis","container",sep="/")
+module_loc = paste(wd,"analysis","base",sep="/")
+
+savedir = paste(wd,"results","pipeline_comparison",sep="/")
+
+```
+
+## Trimming
+
+```{r cutadapt container}
+
+trim_stats <- read.delim(paste(container_loc,
+                               "multiqc",
+                               "riboseq_container_multiqc_data",
+                               "multiqc_cutadapt.txt", sep ="/")) %>%
+  dplyr::group_by(Sample) %>%
+  dplyr::summarize(r_written = sum(r_written), 
+            bp_processed = sum(bp_processed),
+            quality_trimmed = sum(quality_trimmed),
+            bp_written = sum(bp_written))
+
+cont_trim_plot <- trim_stats %>%
+  dplyr::select(c("Sample","r_written","bp_processed","quality_trimmed","bp_written")) %>%
+  tidyr::pivot_longer(cols = c(3,4)) %>%
+  dplyr::mutate(Sample = factor(Sample, levels = trim_stats[order(trim_stats$r_written),]$Sample)
+                )
+
+```
+
+```{r cutadapt module}
+
+trim_stats <- read.delim(paste(module_loc,
+                               "multiqc",
+                               "riboseq_base_multiqc_data",
+                               "multiqc_cutadapt.txt", sep ="/")) %>%
+  dplyr::group_by(Sample) %>%
+  dplyr::summarize(r_written = sum(r_written), 
+            bp_processed = sum(bp_processed),
+            quality_trimmed = sum(quality_trimmed),
+            bp_written = sum(bp_written))
+
+
+base_trim_plot <- trim_stats %>%
+  dplyr::select(c("Sample","r_written","bp_processed","quality_trimmed","bp_written")) %>%
+  tidyr::pivot_longer(cols = c(3,4)) %>%
+  dplyr::mutate(Sample = factor(Sample, levels = trim_stats[order(trim_stats$r_written),]$Sample),
+                )
+```
+
+```{r cutadapt plot}
+cont_plot = ggplot(data = cont_trim_plot, aes(x = Sample, y = value, fill = name)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(ggsci::pal_jco("default")(2)),
+                    labels = c("BP processed", "BP trimmed")) +
+  theme_classic() +
+  labs(title = "container" ,
+       x = "Samples", 
+       y = "Total RNAseq reads", 
+       fill = "Read type") +
+  theme(axis.text.x = element_blank())
+
+base_plot = ggplot(data = base_trim_plot, aes(x = Sample, y = value, fill = name)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(ggsci::pal_jco("default")(2)),
+                    labels = c("BP processed", "BP trimmed")) +
+  theme_classic() +
+  labs(title = "modules",
+       x = "Samples", 
+       y = "Total RNAseq reads", 
+       fill = "Read type") +
+  theme(axis.text.x = element_blank())
+
+ggpubr::ggarrange(base_plot,cont_plot, common.legend = T)
+
+ggsave(filename = "cutadapt_trimming_stats.pdf",
+       device = "pdf",
+       path = savedir
+       )
+```
+
+## Contaminants
+
+```{r bowtie2 container}
+contaminant_files <- list.files(paste(container_loc,"bowtie2",sep="/"), 
+  pattern = "contaminants.txt", 
+  full.names = T, 
+  recursive = T)
+
+contaminant_df <- data.frame()
+
+for (i in seq_along(contaminant_files)){
+  contaminants <- read.delim(contaminant_files[i], skip = 1, header = T)[-1, ]
+  colnames(contaminants)[1] <- "Sample"
+  contaminants$Sample <- paste(
+    strsplit(basename(contaminant_files[i]), "_rnacentral")[[1]][1], 
+    collapse = "-")
+
+  contaminant_df <- rbind(contaminant_df, contaminants)
+}
+
+contaminant_df$READ_TYPE <- factor(contaminant_df$READ_TYPE)
+contaminant_df$READ_TYPE <- factor(contaminant_df$READ_TYPE, levels = c("tRNA",'mtDNA',"snoRNA","rRNA","snRNA","Passed"))
+
+cont_contaminant_df <- contaminant_df
+
+```
+
+```{r bowtie2 module}
+contaminant_files <- list.files(paste(container_loc,"bowtie2",sep="/"), 
+  pattern = "contaminants.txt", 
+  full.names = T, 
+  recursive = T)
+
+contaminant_df <- data.frame()
+
+for (i in seq_along(contaminant_files)){
+  contaminants <- read.delim(contaminant_files[i], skip = 1, header = T)[-1, ]
+  colnames(contaminants)[1] <- "Sample"
+  contaminants$Sample <- paste(
+    strsplit(basename(contaminant_files[i]), "_rnacentral")[[1]][1], 
+    collapse = "-")
+
+  contaminant_df <- rbind(contaminant_df, contaminants)
+}
+
+contaminant_df$READ_TYPE <- factor(contaminant_df$READ_TYPE)
+contaminant_df$READ_TYPE <- factor(contaminant_df$READ_TYPE, levels = c("tRNA",'mtDNA',"snoRNA","rRNA","snRNA","Passed"))
+
+base_contaminant_df <- contaminant_df
+```
+
+```{r bowtie2 perc plot}
+cont_plot <- ggplot(
+  data = cont_contaminant_df, 
+  aes(
+    x = reorder(Sample, -READS), 
+    fill = READ_TYPE, 
+    y = READS)) +
+  geom_bar(position = position_fill(), stat = "identity") +
+  labs(title = "container",
+    fill = "Read type", 
+    y = "Relative fraction of riboseq reads", 
+    x = NULL) +
+  ggsci::scale_fill_jco(alpha = 0.7) +
+  theme_classic() +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme(
+    axis.ticks.x = element_blank(), 
+    axis.line.x = element_blank(), 
+    axis.text.x = element_text(angle = 45, hjust = 1), 
+    axis.text = element_text(size = 6), 
+    axis.title = element_text(size = 8))
+
+base_plot <- ggplot(
+  data = base_contaminant_df, 
+  aes(
+    x = reorder(Sample, -READS), 
+    fill = READ_TYPE, 
+    y = READS)) +
+  geom_bar(position = position_fill(), stat = "identity") +
+  labs(title = "module",
+    fill = "Read type", 
+    y = "Relative fraction of riboseq reads", 
+    x = NULL) +
+  ggsci::scale_fill_jco(alpha = 0.7) +
+  theme_classic() +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme(
+    axis.ticks.x = element_blank(), 
+    axis.line.x = element_blank(), 
+    axis.text.x = element_text(angle = 45, hjust = 1), 
+    axis.text = element_text(size = 6), 
+    axis.title = element_text(size = 8))
+
+ggpubr::ggarrange(base_plot,cont_plot, common.legend = T)
+
+ggsave(filename = "bowtie2_percentage_contaminant_stats.pdf",
+       device = "pdf",
+       path = savedir
+       )
+
+```
+
+```{r bowtie2 plot}
+cont_plot <- ggplot(
+  data = cont_contaminant_df, 
+  aes(
+    x = reorder(Sample, -READS), 
+    fill = READ_TYPE, 
+    y = READS)) +
+  geom_bar(position = position_stack(), stat = "identity") +
+  labs(title = "container",
+    fill = "Read type", 
+    y = "Number of riboseq reads", 
+    x = NULL) +
+  ggsci::scale_fill_jco(alpha = 0.7) +
+  theme_classic() +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme(
+    axis.ticks.x = element_blank(), 
+    axis.line.x = element_blank(), 
+    axis.text.x = element_text(angle = 45, hjust = 1), 
+    axis.text = element_text(size = 6), 
+    axis.title = element_text(size = 8))
+
+
+base_plot <- ggplot(
+  data = base_contaminant_df, 
+  aes(
+    x = reorder(Sample, -READS), 
+    fill = READ_TYPE, 
+    y = READS)) +
+  geom_bar(position = position_stack(), stat = "identity") +
+  labs(title = "module",
+    fill = "Read type", 
+    y = "Number of riboseq reads", 
+    x = NULL) +
+  ggsci::scale_fill_jco(alpha = 0.7) +
+  theme_classic() +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme(
+    axis.ticks.x = element_blank(), 
+    axis.line.x = element_blank(), 
+    axis.text.x = element_text(angle = 45, hjust = 1), 
+    axis.text = element_text(size = 6), 
+    axis.title = element_text(size = 8))
+
+ggpubr::ggarrange(base_plot,cont_plot, common.legend = T)
+
+ggsave(filename = "bowtie2_contaminant_stats.pdf",
+       device = "pdf",
+       path = savedir
+       )
+```
+
+## Alignment
+
+```{r STAR container}
+
+star_stats <- read.delim(paste(container_loc,
+                               "multiqc",
+                               "riboseq_container_multiqc_data",
+                               "multiqc_star.txt", sep ="/")) %>%
+  dplyr::filter(!(grepl("STARpass1", Sample)))
+
+cont_star_perc_stats <- star_stats %>%
+  dplyr::select(c("Sample",
+                  "uniquely_mapped_percent","multimapped_percent",
+                  "unmapped_tooshort_percent","unmapped_other_percent")) %>%
+  tidyr::pivot_longer(cols = c(2:5)) %>%
+  dplyr::mutate(Sample = factor(Sample, levels = star_stats[order(star_stats$uniquely_mapped_percent),]$Sample),
+                name = factor(name,levels = c("unmapped_other_percent","unmapped_tooshort_percent",
+                                              "multimapped_percent","uniquely_mapped_percent")))
+
+cont_star_stats <- star_stats %>%
+  dplyr::select(c("Sample",
+                  "uniquely_mapped", "multimapped", 
+                  "unmapped_tooshort", "unmapped_other")) %>%
+  tidyr::pivot_longer(cols = c(2:5)) %>%
+  dplyr::mutate(Sample = factor(Sample, levels = star_stats[order(star_stats$uniquely_mapped),]$Sample),
+                name = factor(name,levels = c("unmapped_other","unmapped_tooshort",
+                                              "multimapped","uniquely_mapped")))
+
+```
+
+```{r STAR modules}
+
+star_stats <- read.delim(paste(module_loc,
+                               "multiqc",
+                               "riboseq_base_multiqc_data",
+                               "multiqc_star.txt", sep ="/")) %>%
+  dplyr::filter(!(grepl("STARpass1", Sample)))
+
+base_star_perc_stats <- star_stats %>%
+  dplyr::select(c("Sample",
+                  "uniquely_mapped_percent","multimapped_percent",
+                  "unmapped_tooshort_percent","unmapped_other_percent")) %>%
+  tidyr::pivot_longer(cols = c(2:5)) %>%
+  dplyr::mutate(Sample = factor(Sample, levels = star_stats[order(star_stats$uniquely_mapped_percent),]$Sample),
+                name = factor(name,levels = c("unmapped_other_percent","unmapped_tooshort_percent",
+                                              "multimapped_percent","uniquely_mapped_percent")))
+
+base_star_stats <- star_stats %>%
+  dplyr::select(c("Sample",
+                  "uniquely_mapped", "multimapped", 
+                  "unmapped_tooshort", "unmapped_other")) %>%
+  tidyr::pivot_longer(cols = c(2:5)) %>%
+  dplyr::mutate(Sample = factor(Sample, levels = star_stats[order(star_stats$uniquely_mapped),]$Sample),
+                name = factor(name,levels = c("unmapped_other","unmapped_tooshort",
+                                              "multimapped","uniquely_mapped")))
+
+```
+
+```{r STAR plot}
+
+cont_plot = ggplot(data = cont_star_stats, aes(x = Sample, y = value, fill = name)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(ggsci::pal_jco("default")(4))) +
+  theme_classic() +
+  labs(title = "container",
+       x = "Samples", 
+       y = "Total RNAseq reads", 
+       fill = "Read type") +
+  theme(axis.text.x = element_blank())
+
+base_plot = ggplot(data = base_star_stats, aes(x = Sample, y = value, fill = name)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(ggsci::pal_jco("default")(4))) +
+  theme_classic() +
+  labs(title = "module",
+       x = "Samples", 
+       y = "Total RNAseq reads", 
+       fill = "Read type") +
+  theme(axis.text.x = element_blank())
+
+ggpubr::ggarrange(base_plot,cont_plot, common.legend = T)
+
+ggsave(filename = "star_alignment_stats.pdf",
+       device = "pdf",
+       path = savedir
+       )
+
+```
+
+```{r STAR perc plot}
+
+cont_perc_plot = ggplot(data = cont_star_perc_stats, aes(x = Sample, y = value, fill = name)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(ggsci::pal_jco("default")(4))) +
+  theme_classic() +
+  labs(title = "container",
+       x = "Samples", 
+       y = "Total RNAseq reads", 
+       fill = "Read type") +
+  theme(axis.text.x = element_blank())
+
+base_perc_plot = ggplot(data = base_star_perc_stats, aes(x = Sample, y = value, fill = name)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(ggsci::pal_jco("default")(4))) +
+  theme_classic() +
+  labs(title = "module",
+       x = "Samples", 
+       y = "Total RNAseq reads", 
+       fill = "Read type") +
+  theme(axis.text.x = element_blank())
+
+ggpubr::ggarrange(base_perc_plot,cont_perc_plot, common.legend = T)
+
+ggsave(filename = "star_percentage_alignment_stats.pdf",
+       device = "pdf",
+       path = savedir
+       )
+
+```
+
+## P sites
+
+```{r riboseqc container}
+
+
+# Create data.frame with all frame preferences
+summary_P_sites_df <- data.frame()
+summary_reads_df <- data.frame()
+inframe_df <- data.frame()
+read_cats_df <- data.frame()
+cds_reads_df <- data.frame()
+for (fname in riboseqc_files) {
+  sample_id <- paste(strsplit(basename(fname), "-")[[1]][1], collapse = "-")
+  message("Loading ", sample_id)
+  load(fname)
+  
+  summary_P_sites_sample <- data.frame(res_all$summary_P_sites)
+  summary_P_sites_sample$sample_id <- sample_id
+  
+  summary_reads_sample <- data.frame(t(colSums(data.frame(res_all$read_stats$reads_summary_unq$nucl))), row.names = sample_id)
+  
+  inframe_sample <- data.frame(t(res_all$selection_cutoffs$analysis_frame_cutoff$nucl$all$frames_res), row.names = sample_id)
+  
+  read_cats_sample <- data.frame(t(rowSums(data.frame(res_all$read_stats$reads_summary$nucl))), row.names = sample_id)
+
+  cds_reads_sample <- data.frame(reads = t(sum(res_all$read_stats$counts_cds_genes_unq$reads)), row.names = sample_id)
+
+  summary_P_sites_df <- rbind(summary_P_sites_df, summary_P_sites_sample)
+  summary_reads_df <- dplyr::bind_rows(summary_reads_df, summary_reads_sample) 
+  inframe_df <- rbind(inframe_df, inframe_sample)
+  read_cats_df <- rbind(read_cats_df, read_cats_sample)
+  cds_reads_df <- rbind(cds_reads_df, cds_reads_sample)
+  }
+  
+```
+
+```{r riboseqc modules}
+
+```
+
+```{r riboseqc plot}
+
+```
+
+## ORFs
+
+```{r ORFquant container}
+
+```
+
+```{r ORFquant modules}
+
+```
