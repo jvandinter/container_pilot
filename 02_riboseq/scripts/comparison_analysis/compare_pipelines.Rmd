@@ -22,7 +22,9 @@ wd = "/hpc/pmc_vanheesch/projects/Jip/pilots/20230606_JD_containers/02_riboseq"
 container_loc = paste(wd,"analysis","container",sep="/")
 module_loc = paste(wd,"analysis","base",sep="/")
 
-savedir = paste(wd,"results","pipeline_comparison",sep="/")
+savedir = paste(wd,"results","pipeline_comparison","riboseq",sep="/")
+
+colors <- ggsci::pal_jco("default", alpha = 0.7)(9)
 
 ```
 
@@ -377,7 +379,12 @@ ggsave(filename = "star_percentage_alignment_stats.pdf",
 ## P sites
 
 ```{r riboseqc container}
-
+riboseqc_files <- list.files(paste(container_loc,
+                                   "RiboseQC",
+                                   sep ="/"),
+                             pattern = "results_RiboseQC_all", 
+                             full.names = T, 
+                             recursive = T)
 
 # Create data.frame with all frame preferences
 summary_P_sites_df <- data.frame()
@@ -406,16 +413,282 @@ for (fname in riboseqc_files) {
   inframe_df <- rbind(inframe_df, inframe_sample)
   read_cats_df <- rbind(read_cats_df, read_cats_sample)
   cds_reads_df <- rbind(cds_reads_df, cds_reads_sample)
-  }
-  
+}
+
+summary_reads_df_sel <- summary_reads_df[,9:18]
+perc_reads_df <- round((summary_reads_df_sel/rowSums(summary_reads_df_sel))*100,2)
+colnames(perc_reads_df) <- gsub(colnames(perc_reads_df), pattern = ".*_", replacement = "")
+
+read_cats_temp <- read_cats_df
+read_cats_temp$sample_id <- rownames(read_cats_temp)
+read_cats_long <- tidyr::pivot_longer(read_cats_temp, cols = colnames(read_cats_df))
+
+read_cats_long$name <- factor(read_cats_long$name, levels = c("fiveutrs", "cds", "threeutrs", "ncRNAs", "ncIsof", "introns", "intergenic"))
+
+read_cats_annotgenes <- subset(read_cats_long, name %in% c("fiveutrs", "cds", "threeutrs"))
+
+# Create plot DFs
+
+cont_frame_perc_plot <- tidyr::pivot_longer(perc_reads_df, cols = colnames(perc_reads_df))
+cont_inframe_df <- inframe_df
+cont_cds_reads_df <- cds_reads_df
+cont_readlen_29_df <- subset(summary_P_sites_df, read_length == 29 & comp == "nucl")
+cont_read_cats_annotgenes_perc <- read_cats_annotgenes %>%
+  dplyr::group_by(sample_id) %>%
+  dplyr::mutate(perc = round(value / sum(value)*100, 2))
+
 ```
 
 ```{r riboseqc modules}
+riboseqc_files <- list.files(paste(module_loc,
+                                   "RiboseQC",
+                                   sep ="/"),
+                             pattern = "results_RiboseQC_all", 
+                             full.names = T, 
+                             recursive = T)
+
+# Create data.frame with all frame preferences
+summary_P_sites_df <- data.frame()
+summary_reads_df <- data.frame()
+inframe_df <- data.frame()
+read_cats_df <- data.frame()
+cds_reads_df <- data.frame()
+for (fname in riboseqc_files) {
+  sample_id <- paste(strsplit(basename(fname), "-")[[1]][1], collapse = "-")
+  message("Loading ", sample_id)
+  load(fname)
+  
+  summary_P_sites_sample <- data.frame(res_all$summary_P_sites)
+  summary_P_sites_sample$sample_id <- sample_id
+  
+  summary_reads_sample <- data.frame(t(colSums(data.frame(res_all$read_stats$reads_summary_unq$nucl))), row.names = sample_id)
+  
+  inframe_sample <- data.frame(t(res_all$selection_cutoffs$analysis_frame_cutoff$nucl$all$frames_res), row.names = sample_id)
+  
+  read_cats_sample <- data.frame(t(rowSums(data.frame(res_all$read_stats$reads_summary$nucl))), row.names = sample_id)
+
+  cds_reads_sample <- data.frame(reads = t(sum(res_all$read_stats$counts_cds_genes_unq$reads)), row.names = sample_id)
+
+  summary_P_sites_df <- rbind(summary_P_sites_df, summary_P_sites_sample)
+  summary_reads_df <- dplyr::bind_rows(summary_reads_df, summary_reads_sample) 
+  inframe_df <- rbind(inframe_df, inframe_sample)
+  read_cats_df <- rbind(read_cats_df, read_cats_sample)
+  cds_reads_df <- rbind(cds_reads_df, cds_reads_sample)
+}
+
+summary_reads_df_sel <- summary_reads_df[,9:18]
+perc_reads_df <- round((summary_reads_df_sel/rowSums(summary_reads_df_sel))*100,2)
+colnames(perc_reads_df) <- gsub(colnames(perc_reads_df), pattern = ".*_", replacement = "")
+
+read_cats_temp <- read_cats_df
+read_cats_temp$sample_id <- rownames(read_cats_temp)
+read_cats_long <- tidyr::pivot_longer(read_cats_temp, cols = colnames(read_cats_df))
+
+read_cats_long$name <- factor(read_cats_long$name, levels = c("fiveutrs", "cds", "threeutrs", "ncRNAs", "ncIsof", "introns", "intergenic"))
+
+read_cats_annotgenes <- subset(read_cats_long, name %in% c("fiveutrs", "cds", "threeutrs"))
+
+# Create plot DFs
+
+base_frame_perc_plot <- tidyr::pivot_longer(perc_reads_df, cols = colnames(perc_reads_df))
+base_inframe_df <- inframe_df
+base_cds_reads_df <- cds_reads_df
+base_readlen_29_df <- subset(summary_P_sites_df, read_length == 29 & comp == "nucl")
+base_read_cats_annotgenes_perc <- read_cats_annotgenes %>%
+  dplyr::group_by(sample_id) %>%
+  dplyr::mutate(perc = round(value / sum(value)*100, 2))
 
 ```
 
-```{r riboseqc plot}
+### RPF length
 
+```{r riboseqc RPF length plot}
+cont_plot <- ggplot(cont_frame_perc_plot, aes(y = value, x = name)) +
+  ggbeeswarm::geom_beeswarm(size = 1, cex = 0.8, alpha = 1) +
+  
+  stat_summary(aes(group = 1, yend = ..y.., xend = ..x.. - 0.2), color = "black", fun = mean, geom = "segment") +
+  stat_summary(aes(group = 1, yend = ..y.., xend = ..x.. + 0.2), color = "black", fun = mean, geom = "segment") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(title = "container",y = "Reads", x = "Ribosome footprint length (nt)") +
+  theme_classic() 
+
+base_plot <- ggplot(base_frame_perc_plot, aes(y = value, x = name)) +
+  ggbeeswarm::geom_beeswarm(size = 1, cex = 0.8, alpha = 1) +
+  
+  stat_summary(aes(group = 1, yend = ..y.., xend = ..x.. - 0.2), color = "black", fun = mean, geom = "segment") +
+  stat_summary(aes(group = 1, yend = ..y.., xend = ..x.. + 0.2), color = "black", fun = mean, geom = "segment") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(title = "module",y = "Reads", x = "Ribosome footprint length (nt)") +
+  theme_classic() 
+
+ggpubr::ggarrange(cont_plot,base_plot, common.legend = T)
+
+ggsave(filename = "ribo_rpf_length.pdf",
+       path = savedir,
+       width = 10,
+       height = 5)
+```
+
+### inframe
+
+```{r riboseqc inframe plot}
+cont_plot <- 
+ggplot(data = cont_inframe_df, aes(y = mean_pct_max_frame, x = reorder(rownames(inframe_df), -mean_pct_max_frame))) +
+  geom_bar(stat = "identity", fill = colors[1]) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 100), expand = c(0, 0)) +
+  geom_hline(yintercept = mean(inframe_df$mean_pct_max_frame), linetype = 2) +
+  labs(title = "container",y = "In-frame reads (all read lengths)", x = "Samples") +
+  theme_classic() +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
+
+
+base_plot <- ggplot(data = cont_inframe_df, aes(y = mean_pct_max_frame, x = reorder(rownames(inframe_df), -mean_pct_max_frame))) +
+  geom_bar(stat = "identity", fill = colors[1]) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 100), expand = c(0, 0)) +
+  geom_hline(yintercept = mean(inframe_df$mean_pct_max_frame), linetype = 2) +
+  labs(title = "module",y = "In-frame reads (all read lengths)", x = "Samples") +
+  theme_classic() +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
+
+
+ggpubr::ggarrange(cont_plot,base_plot, common.legend = T)
+
+ggsave(filename = "ribo_inframe_all_perc.pdf",
+       path = savedir,
+       width = 10,
+       height = 5)
+```
+
+### inframe 29 nt
+
+```{r riboseqc inframe 29nt plot}
+cont_plot <- ggplot(data = cont_readlen_29_df, aes(y = frame_preference, x = reorder(sample_id, -frame_preference))) +
+  geom_bar(stat = "identity", fill = colors[1]) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 100), expand = c(0, 0)) +
+  geom_hline(yintercept = mean(cont_readlen_29_df$frame_preference), linetype = 2) +
+  geom_hline(yintercept = 60, color = "red", linetype = 2) +
+
+  labs(title = "container",y = "In-frame reads (29nt)", x = "Samples") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
+
+base_plot <- ggplot(data = base_readlen_29_df, aes(y = frame_preference, x = reorder(sample_id, -frame_preference))) +
+  geom_bar(stat = "identity", fill = colors[1]) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 100), expand = c(0, 0)) +
+  geom_hline(yintercept = mean(base_readlen_29_df$frame_preference), linetype = 2) +
+  geom_hline(yintercept = 60, color = "red", linetype = 2) +
+
+  labs(title = "module",y = "In-frame reads (29nt)", x = "Samples") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
+
+ggpubr::ggarrange(cont_plot,base_plot, common.legend = T)
+
+ggsave(filename = "ribo_inframe_29nt_perc.pdf",
+       path = savedir,
+       width = 10,
+       height = 5)
+```
+
+### RPF categorisation
+
+```{r riboseqc RPF location plot}
+cont_plot <- 
+ggplot(data = cont_read_cats_annotgenes_perc,
+       aes(y = perc, x = sample_id, fill = name)) +
+  geom_bar(stat = "identity",
+           position = "dodge2") +
+  scale_fill_manual(values = colors) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1),
+                     limits = c(0, 100)) +
+  labs(title = "container",y = "Riboseq reads") +
+  theme_classic() +
+  theme(
+    axis.ticks.x = element_blank(),
+    axis.line.x = element_blank(),
+    legend.position = "none",
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1,
+      size = 3)) +
+  facet_grid( 
+    ~ name,
+    scales = "free_x",  # Let the x axis vary across facets.
+    space = "free_x",  # Let the width of facets vary and force all bars to have the same width.
+    switch = "x") +
+  
+  theme(
+    strip.placement = "outside",
+    strip.background = element_blank(),
+    axis.title.x = element_blank()
+  )
+
+base_plot <- ggplot(data = base_read_cats_annotgenes_perc,
+       aes(y = perc, x = sample_id, fill = name)) +
+  geom_bar(stat = "identity",
+           position = "dodge2") +
+  scale_fill_manual(values = colors) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1),
+                     limits = c(0, 100)) +
+  labs(title = "module",y = "Riboseq reads") +
+  theme_classic() +
+  theme(
+    axis.ticks.x = element_blank(),
+    axis.line.x = element_blank(),
+    legend.position = "none",
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1,
+      size = 3)) +
+  facet_grid( 
+    ~ name,
+    scales = "free_x",  # Let the x axis vary across facets.
+    space = "free_x",  # Let the width of facets vary and force all bars to have the same width.
+    switch = "x") +
+  
+  theme(
+    strip.placement = "outside",
+    strip.background = element_blank(),
+    axis.title.x = element_blank()
+  )
+
+ggpubr::ggarrange(cont_plot,base_plot, common.legend = T)
+
+ggsave(filename = "ribo_rpf_loc.pdf",
+       path = savedir,
+       width = 10,
+       height = 5)
+
+```
+
+### CDS
+
+```{r riboseqc CDS plot}
+
+cont_plot <- ggplot(data = cont_cds_reads_df, aes(y = reads, x = reorder(rownames(cds_reads_df), -reads))) +
+  geom_bar(stat = "identity", fill = colors[1]) +
+  scale_y_continuous(labels = function(x) format(x, scientific = TRUE)) +
+  geom_hline(yintercept = mean(cds_reads_df$reads), linetype = 2) +
+  labs(title = "container",y = "CDS reads", x = "Samples") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
+
+base_plot <- ggplot(data = base_cds_reads_df, aes(y = reads, x = reorder(rownames(cds_reads_df), -reads))) +
+  geom_bar(stat = "identity", fill = colors[1]) +
+  scale_y_continuous(labels = function(x) format(x, scientific = TRUE)) +
+  geom_hline(yintercept = mean(cds_reads_df$reads), linetype = 2) +
+  labs(title = "module",y = "CDS reads", x = "Samples") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
+
+ggpubr::ggarrange(cont_plot,base_plot, common.legend = T)
+
+ggsave(filename = "ribo_CDS_count_barplot.pdf",
+       path = savedir,
+       width = 7,
+       height = 4)
 ```
 
 ## ORFs
