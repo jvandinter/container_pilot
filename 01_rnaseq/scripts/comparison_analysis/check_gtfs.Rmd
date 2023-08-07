@@ -18,7 +18,209 @@ library(ggplot2)
 
 ```{r parameters}
 wd="/hpc/pmc_vanheesch/projects/Jip/pilots/20230606_JD_containers/01_rnaseq"
+
+module_loc = paste(wd,"analysis","base",sep="/")
+container_loc = paste(wd,"analysis","container",sep="/")
+
+savedir = paste(wd,"results","comparison_analysis",sep="/")
 ```
+
+## Trimming
+
+```{r cutadapt container}
+
+trim_stats <- read.delim(paste(container_loc,
+                               "multiqc",
+                               "rnaseq_container_multiqc_data",
+                               "multiqc_cutadapt.txt", sep ="/")) %>%
+  dplyr::group_by(Sample) %>%
+  dplyr::summarize(r_written = sum(r_written), 
+            bp_processed = sum(bp_processed),
+            quality_trimmed = sum(quality_trimmed),
+            bp_written = sum(bp_written))
+
+cont_trim_plot <- trim_stats %>%
+  dplyr::select(c("Sample","r_written","bp_processed","quality_trimmed","bp_written")) %>%
+  tidyr::pivot_longer(cols = c(3,4)) %>%
+  dplyr::mutate(Sample = factor(Sample, levels = trim_stats[order(trim_stats$r_written),]$Sample)
+                )
+
+```
+
+```{r cutadapt module}
+
+trim_stats <- read.delim(paste(module_loc,
+                               "multiqc",
+                               "rnaseq_base_multiqc_data",
+                               "multiqc_cutadapt.txt", sep ="/")) %>%
+  dplyr::group_by(Sample) %>%
+  dplyr::summarize(r_written = sum(r_written), 
+            bp_processed = sum(bp_processed),
+            quality_trimmed = sum(quality_trimmed),
+            bp_written = sum(bp_written))
+
+
+base_trim_plot <- trim_stats %>%
+  dplyr::select(c("Sample","r_written","bp_processed","quality_trimmed","bp_written")) %>%
+  tidyr::pivot_longer(cols = c(3,4)) %>%
+  dplyr::mutate(Sample = factor(Sample, levels = trim_stats[order(trim_stats$r_written),]$Sample),
+                )
+```
+
+```{r cutadapt plot}
+cont_plot = ggplot(data = cont_trim_plot, aes(x = Sample, y = value, fill = name)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(ggsci::pal_jco("default")(2)),
+                    labels = c("BP processed", "BP trimmed")) +
+  theme_classic() +
+  labs(title = "container" ,
+       x = "Samples", 
+       y = "Total RNAseq reads", 
+       fill = "Read type") +
+  theme(axis.text.x = element_blank())
+
+base_plot = ggplot(data = base_trim_plot, aes(x = Sample, y = value, fill = name)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(ggsci::pal_jco("default")(2)),
+                    labels = c("BP processed", "BP trimmed")) +
+  theme_classic() +
+  labs(title = "modules",
+       x = "Samples", 
+       y = "Total RNAseq reads", 
+       fill = "Read type") +
+  theme(axis.text.x = element_blank())
+
+ggpubr::ggarrange(base_plot,cont_plot, common.legend = T)
+
+ggsave(filename = "cutadapt_trimming_stats.pdf",
+       device = "pdf",
+       path = savedir
+       )
+```
+
+
+
+
+## Alignment
+
+```{r STAR container}
+
+star_stats <- read.delim(paste(container_loc,
+                               "multiqc",
+                               "rnaseq_container_multiqc_data",
+                               "multiqc_star.txt", sep ="/")) %>%
+  dplyr::filter(!(grepl("STARpass1", Sample)))
+
+cont_star_perc_stats <- star_stats %>%
+  dplyr::select(c("Sample",
+                  "uniquely_mapped_percent","multimapped_percent",
+                  "unmapped_tooshort_percent","unmapped_other_percent")) %>%
+  tidyr::pivot_longer(cols = c(2:5)) %>%
+  dplyr::mutate(Sample = factor(Sample, levels = star_stats[order(star_stats$uniquely_mapped_percent),]$Sample),
+                name = factor(name,levels = c("unmapped_other_percent","unmapped_tooshort_percent",
+                                              "multimapped_percent","uniquely_mapped_percent")))
+
+cont_star_stats <- star_stats %>%
+  dplyr::select(c("Sample",
+                  "uniquely_mapped", "multimapped", 
+                  "unmapped_tooshort", "unmapped_other")) %>%
+  tidyr::pivot_longer(cols = c(2:5)) %>%
+  dplyr::mutate(Sample = factor(Sample, levels = star_stats[order(star_stats$uniquely_mapped),]$Sample),
+                name = factor(name,levels = c("unmapped_other","unmapped_tooshort",
+                                              "multimapped","uniquely_mapped")))
+
+```
+
+```{r STAR modules}
+
+star_stats <- read.delim(paste(module_loc,
+                               "multiqc",
+                               "rnaseq_base_multiqc_data",
+                               "multiqc_star.txt", sep ="/")) %>%
+  dplyr::filter(!(grepl("STARpass1", Sample)))
+
+base_star_perc_stats <- star_stats %>%
+  dplyr::select(c("Sample",
+                  "uniquely_mapped_percent","multimapped_percent",
+                  "unmapped_tooshort_percent","unmapped_other_percent")) %>%
+  tidyr::pivot_longer(cols = c(2:5)) %>%
+  dplyr::mutate(Sample = factor(Sample, levels = star_stats[order(star_stats$uniquely_mapped_percent),]$Sample),
+                name = factor(name,levels = c("unmapped_other_percent","unmapped_tooshort_percent",
+                                              "multimapped_percent","uniquely_mapped_percent")))
+
+base_star_stats <- star_stats %>%
+  dplyr::select(c("Sample",
+                  "uniquely_mapped", "multimapped", 
+                  "unmapped_tooshort", "unmapped_other")) %>%
+  tidyr::pivot_longer(cols = c(2:5)) %>%
+  dplyr::mutate(Sample = factor(Sample, levels = star_stats[order(star_stats$uniquely_mapped),]$Sample),
+                name = factor(name,levels = c("unmapped_other","unmapped_tooshort",
+                                              "multimapped","uniquely_mapped")))
+
+```
+
+```{r STAR plot}
+
+cont_plot = ggplot(data = cont_star_stats, aes(x = Sample, y = value, fill = name)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(ggsci::pal_jco("default")(4))) +
+  theme_classic() +
+  labs(title = "container",
+       x = "Samples", 
+       y = "Total RNAseq reads", 
+       fill = "Read type") +
+  theme(axis.text.x = element_blank())
+
+base_plot = ggplot(data = base_star_stats, aes(x = Sample, y = value, fill = name)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(ggsci::pal_jco("default")(4))) +
+  theme_classic() +
+  labs(title = "module",
+       x = "Samples", 
+       y = "Total RNAseq reads", 
+       fill = "Read type") +
+  theme(axis.text.x = element_blank())
+
+ggpubr::ggarrange(base_plot,cont_plot, common.legend = T)
+
+ggsave(filename = "star_alignment_stats.pdf",
+       device = "pdf",
+       path = savedir
+       )
+
+```
+
+```{r STAR perc plot}
+
+cont_perc_plot = ggplot(data = cont_star_perc_stats, aes(x = Sample, y = value, fill = name)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(ggsci::pal_jco("default")(4))) +
+  theme_classic() +
+  labs(title = "container",
+       x = "Samples", 
+       y = "Total RNAseq reads", 
+       fill = "Read type") +
+  theme(axis.text.x = element_blank())
+
+base_perc_plot = ggplot(data = base_star_perc_stats, aes(x = Sample, y = value, fill = name)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(ggsci::pal_jco("default")(4))) +
+  theme_classic() +
+  labs(title = "module",
+       x = "Samples", 
+       y = "Total RNAseq reads", 
+       fill = "Read type") +
+  theme(axis.text.x = element_blank())
+
+ggpubr::ggarrange(base_perc_plot,cont_perc_plot, common.legend = T)
+
+ggsave(filename = "star_percentage_alignment_stats.pdf",
+       device = "pdf",
+       path = savedir
+       )
+
+```
+
 
 ## Stringtie
 

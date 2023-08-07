@@ -22,7 +22,7 @@ cd "${outdir}"
 mkdir -p "trimgalore/${sample_id}/"
 
 # Check whether script needs to run
-if [[ -f "${outdir}/trimgalore/${sample_id}/${r1_filename/_R1_/_R1_trimmed_}" ]]; then
+if [[ -f "${outdir}/trimgalore/${sample_id}/${r1_filename}" ]]; then
   echo "`date` ${sample_id} file already present"
   exit 0
 fi
