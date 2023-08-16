@@ -1,0 +1,1081 @@
+---
+title: "Pipeline comparison ORF"
+author: "JD"
+date: "2023-08-15"
+output: html_document
+---
+
+
+```{r}
+message("Loading required libraries ...")
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(data.table)
+  library(GenomicRanges)
+  library(RColorBrewer)
+  library(parallel)
+})
+```
+
+```{r functions}
+prepare_orfs <- function(file_list, orf_method, ncores) {
+  # Return a grangeslist with metadata columns representing the ORFs.
+  #
+  # Parameters:
+  #   file_list - list, the input files from an ORF caller.
+  #   orf_method - string, name of the ORF caller.
+  #   ncores - int, number of cores to use.
+  #
+  # Returns:
+  #   orfs - grangeslist, detected ORFs including the stop codon.
+  if (orf_method == "PRICE") {
+    orfs <- prepare_price(file_list, ncores)
+    orfs <- lapply(orfs, function(x) {
+      orf <- correct_price_geneid(x)
+      m_cols <- mcols(orf)
+      orf <- orf %>% as.data.frame() %>% mutate(group_name = name) %>% 
+        makeGRangesListFromDataFrame(split.field = "group_name") 
+      mcols(orf) <- m_cols
+      return(orf)
+    })
+  } else if (orf_method == "ORFquant") {
+    orfs <- prepare_orfquant(file_list)
+    orfs <- lapply(orfs, function(orf) {
+      orf <- add_stop_codon(orf, gtf_exon)
+      return(orf)
+    })
+  } else if (orf_method == "Ribo-TISH") {
+    orfs <- get_tish_orfs(file_list, gtf_exon, ncores)
+  } else if (orf_method == "Ribotricer") {
+    tricer_ref <- get_all_tricer_orfs(tricer_allorf_file)
+    orfs <- prepare_ribotricer(file_list, tricer_ref, ncores)
+    orfs <- mclapply(orfs, function(orf) {
+      orf <- add_stop_codon(orf, gtf_exon)
+      return(orf)
+    }, mc.cores = ncores)
+  }
+  orfs <- mclapply(orfs, function(orf) {
+    orf_cats <- orf %>% as.data.frame() %>% 
+        mutate(transcript_id = as.character(str_match(group_name, 
+                                                      "ENST\\d+|MSTRG[.]\\d+[.]\\d+"))) %>% 
+        group_by(group_name, transcript_id, strand) %>% 
+        summarise(orf_sta = min(start), orf_end = max(end), 
+                  .groups = "keep") %>% annotate_categories(gtf_ref) %>% 
+      ungroup() %>% select(group_name, orf_category)
+    mcols(orf) <- mcols(orf) %>% as.data.frame() %>% 
+      left_join(orf_cats, c("orf_id" = "group_name"))
+    return(orf)
+  }, mc.cores = ncores)
+  return(orfs)
+}
+
+annotate_categories <- function(orf_seq, gtf_cds) {
+  # Determine ORF categories based on transcript and GTF annotation
+  #
+  # Parameters:
+  #   orf_seq - dataframe, ORFs with transcript ids and genomic start and end 
+  #     coordinates
+  #   gtf_cds - dataframe, gtf based reference with transcript ids and genomic 
+  #     start and end coordinates
+  #   ncores - int, number of cores to use.
+  #
+  # Returns:
+  #   orf_cat_compare - dataframe, input dataframe with added orf_category 
+  #     column
+  orf_cat_compare <- orf_seq %>% left_join(gtf_cds, "transcript_id") %>% 
+    mutate(orf_category = case_when(
+      gtf_sta == orf_sta & gtf_end == orf_end ~ "ORF_annotated",
+      gtf_sta > orf_sta & gtf_end == orf_end & strand == "+" ~ "N_extension",
+      gtf_sta > orf_sta & gtf_end == orf_end & strand == "-" ~ "C_extension",
+      gtf_sta < orf_sta & gtf_end == orf_end & strand == "+" ~ "N_truncation",
+      gtf_sta < orf_sta & gtf_end == orf_end & strand == "-" ~ "C_truncation",
+      gtf_end < orf_sta & gtf_end < orf_end & strand == "+" ~ "dORF",
+      gtf_end < orf_sta & gtf_end < orf_end & strand == "-" ~ "uORF",
+      gtf_sta < orf_sta & gtf_end < orf_end & strand == "+" ~ "overl_dORF",
+      gtf_sta < orf_sta & gtf_end < orf_end & strand == "-" ~ "overl_uORF",
+      gtf_sta > orf_sta & gtf_sta > orf_end & strand == "+" ~ "uORF",
+      gtf_sta > orf_sta & gtf_sta > orf_end & strand == "-" ~ "dORF",
+      gtf_sta > orf_sta & gtf_end > orf_end & strand == "+" ~ "overl_uORF",
+      gtf_sta > orf_sta & gtf_end > orf_end & strand == "-" ~ "overl_dORF",
+      gtf_sta < orf_sta & gtf_end > orf_end ~ "nested_ORF",
+      gtf_sta > orf_sta & gtf_end < orf_end ~ "NC_extension",
+      gtf_sta == orf_sta & gtf_end < orf_end & strand == "+" ~ "C_extension",
+      gtf_sta == orf_sta & gtf_end < orf_end & strand == "-" ~ "N_extension",
+      gtf_sta == orf_sta & gtf_end > orf_end & strand == "+" ~ "C_truncation",
+      gtf_sta == orf_sta & gtf_end > orf_end & strand == "-" ~ "N_truncation",
+      TRUE ~ "novel"
+    )
+  )
+}
+
+add_stop_codon <- function(orf_granges, gtf_exon) {
+  # Extend all input ORFs to include the stop codon
+  #
+  # Parameters:
+  #   orf_granges - GRangesList, ORFs to which a stop codon needs to be added
+  #   gtf_exon - dataframe, gtf based reference annotation
+  #
+  # Returns:
+  #   orf_shift - GRangesList, same as input, but with stopcodon included
+  m_cols <- mcols(orf_granges)
+  orf_df <- orf_granges %>% as.data.frame() %>% 
+    mutate(transcript_id = as.character(str_match(group_name, "ENST\\d+|MSTRG[.]\\d+[.]\\d+"))) %>% 
+    dplyr::rename(orf_start = start, orf_end = end, orf_strand = strand)
+  orf_plus <- orf_df %>% filter(orf_strand == "+") %>% 
+    inner_join(gtf_exon, "transcript_id", relationship = "many-to-many") %>% 
+    filter(start <= orf_start, end >= orf_end) %>% 
+    group_by(group_name) %>% 
+    mutate(new_end = ifelse(orf_end == max(orf_end), orf_end + 3, orf_end),
+           dif = ifelse(new_end > end, new_end - end, NA))
+  orf_plus_extra <- orf_plus %>% filter(!is.na(dif)) %>% 
+    left_join(gtf_exon, c("transcript_id", "strand"), 
+              relationship = "many-to-many") %>% 
+    filter(start.y > orf_start) %>% 
+    group_by(group_name, dif, seqnames, strand) %>% 
+    summarise(orf_start = min(start.y), .groups = "keep") %>% 
+    mutate(new_end = orf_start + dif - 1) %>% ungroup() %>% select(-dif)
+  orf_plus_shift <- orf_plus %>% 
+    select(group_name, seqnames, strand, orf_start, new_end) %>% 
+    rbind(orf_plus_extra) %>% dplyr::rename(start = orf_start, end = new_end)
+  
+  orf_minus <- orf_df %>% filter(orf_strand == "-") %>% 
+    inner_join(gtf_exon, "transcript_id", relationship = "many-to-many") %>% 
+    filter(start <= orf_start, end >= orf_end) %>% 
+    group_by(group_name) %>% 
+    mutate(new_start = ifelse(orf_start == min(orf_start), orf_start - 3, 
+                              orf_start),
+           dif = ifelse(new_start < start, start - new_start, NA))
+  orf_minus_extra <- orf_minus %>% filter(!is.na(dif)) %>% 
+    left_join(gtf_exon, c("transcript_id", "strand"), 
+              relationship = "many-to-many") %>% 
+    filter(end.y < orf_end) %>% 
+    group_by(group_name, dif, seqnames, strand) %>% 
+    summarise(orf_end = max(end.y), .groups = "keep") %>% 
+    mutate(new_start = orf_end - dif + 1) %>% ungroup() %>% select(-dif)
+  orf_minus_shift <- orf_minus %>% 
+    select(group_name, seqnames, strand, new_start, orf_end) %>% 
+    rbind(orf_minus_extra) %>% dplyr::rename(start = new_start, end = orf_end)
+  orf_shift <- rbind(orf_plus_shift, orf_minus_shift) %>% distinct() %>% 
+    makeGRangesListFromDataFrame(split.field = "group_name") 
+  orf_shift <- orf_shift[m_cols$orf_id]
+  mcols(orf_shift) <- m_cols
+  return(orf_shift)
+}
+
+prepare_price <- function(files, ncores) {
+  # Read PRICE files into GRangesLists
+  #
+  # Parameters:
+  #   files - vector, contains the file paths to the PRICE .cit.bed files
+  #
+  # Returns:
+  #   orfs_list - list, contains GRangesLists with the PRICE orfs
+  orfs_list <- mclapply(files, function(x) readTranscriptFeatures(x)$exons, 
+                        mc.cores = ncores)
+  orfs_list <- lapply(orfs_list, function(x) split(x, x$name))
+  for (i in 1:length(files)) {
+    price_tsv_file <- str_replace(files[[i]], ".cit.bed", ".tsv")
+    price_tsv <- read.table(file = price_tsv_file, sep = '\t', header = TRUE)
+    orfs_list[[i]] <- create_mcols(orfs_list[[i]], price_tsv)
+  }
+  return(orfs_list)
+}
+
+create_mcols <- function(price_orflist, price_table) {
+  # Create the metadata columns for PRICE
+  #
+  # Parameters:
+  #   price_orflist - GRangesList, ORFs detected by PRICE
+  #   price_table - data frame, created from the orfs.tsv file created by PRICE
+  #
+  # Returns:
+  #   price_orflist - GRangesList, with mcols added
+  orf_mcols <- data.frame(names(price_orflist))
+  orf_mcols <- orf_mcols %>% 
+    separate(1,c("Gene_id", "Transcript_id", "Type", "Type_index", 
+                 "StartCodon"), sep="__")
+  orf_mcols$orf_id <- paste(orf_mcols$Transcript_id, orf_mcols$Type, 
+                            orf_mcols$Type_index, sep = "_")
+  orf_mcols <- left_join(orf_mcols, price_table[c(2, 7, 9:ncol(price_table))], 
+                         c("orf_id"="Id"))
+  orf_mcols <- dplyr::rename(orf_mcols, p_value = p.value, "p_sites" = Total, 
+                             transcript_id = Transcript_id, gene_id = Gene_id)
+  orf_mcols[c(7:ncol(orf_mcols))] <- sapply(orf_mcols[c(7:ncol(orf_mcols))], 
+                                            as.numeric)
+  orf_mcols$orf_id <- names(price_orflist)
+  mcols(price_orflist) <- orf_mcols
+  return(price_orflist)
+}
+
+correct_price_geneid <- function(orfs_price) {
+  # Corrects PRICE gene ids for ORFs with mutliple gene ids assigned
+  #
+  # Parameters:
+  #   orfs_price - GRangesLists, the detected ORFs by PRICE
+  #
+  # Returns:
+  #   orfs_price - GRangesLists, same as input, but now each ORF has one gene id
+  m_cols <- data.frame(mcols(orfs_price))
+  gene_ids <- m_cols$gene_id
+  transcript_ids <- m_cols$transcript_id
+  m_cols$gene_id <- sapply(c(1:length(orfs_price)), 
+    function(x) get_correct_geneid(transcript_ids[x], gene_ids[x]))
+  mcols(orfs_price) <- m_cols
+  return(orfs_price)
+}
+
+get_correct_geneid <- function(t_id, g_id) {
+  # Retrieves correct gene id if there are multiple gene ids
+  #
+  # Parameters:
+  #   t_id - string, the transcript id
+  #   g_id - string, gene id determined by PRICE
+  #   gid_tid_table - data frame, maps transcript ids to gene ids
+  #
+  # Returns:
+  #   correct_gene_id - string, g_id if it consisted of a single gene id, the 
+  #                     gene id found based on the transcript id if it consisted
+  #                     of multiple gene ids
+  split_id <- str_split(g_id, "_", simplify = T)
+  if (length(split_id) == 1) {
+    return(g_id)
+  }
+  correct_gene_id <- tid_gid$gene_id[which(tid_gid$transcript_id == t_id)]
+  return(correct_gene_id)
+}
+
+prepare_orfquant <- function(files) {
+  # Read ORFquant files into GRangesLists
+  #
+  # Parameters:
+  #   files - vector, contains the file paths to the ORFquant RData files
+  #
+  # Returns:
+  #   orfs_list - list, contains GRangesLists with the ORFquant orfs
+  orfs_list <- vector(mode = "list", length = length(files))
+  for (i in 1:length(files)) {
+    load(files[i])
+    orfs <- split(ORFquant_results$ORFs_gen, names(ORFquant_results$ORFs_gen))
+    gene_ids <- data.frame(transcript_id = 
+                             ORFquant_results$ORFs_tx$transcript_id, 
+                           gene_id = ORFquant_results$ORFs_tx$gene_id, 
+                           orf_type = ORFquant_results$ORFs_tx$ORF_category_Tx,
+                           orf_id = names(ORFquant_results$ORFs_tx),
+                           p_sites = ORFquant_results$ORFs_tx$P_sites_raw,
+                           p_value = ORFquant_results$ORFs_tx$pval)
+    orf_ids <- data.frame(orf_id = names(orfs))
+    mcols(orfs) <- left_join(orf_ids, gene_ids, "orf_id")
+    orfs_list[[i]] <- orfs
+  }
+  return(orfs_list)
+}
+
+get_tish_orfs <- function(tish_files, gtf, ncores) {
+  # Read Ribo-TISH files into GRangesLists
+  #
+  # Parameters:
+  #   tish_files - vector, contains the file paths to the Ribo_TISH output files
+  #   gtf - dataframe, contains information from reference gtf about all 
+  #     transcripts
+  #   ncores - int, number of cores to use for parallel processing
+  #
+  # Returns:
+  #   tish_dat - list, contains GRangesLists with the Ribo-TISH orfs
+  tish_dat <- mclapply(tish_files, function(x) {
+    tish_data <- fread(x) 
+    tish_data <- tish_data %>% 
+      mutate(seqname = as.character(str_match(GenomePos, "^\\d+")),
+             start_tish = as.numeric(str_match(GenomePos, "\\d+(?=-)")) + 1,
+             end_tish = as.numeric(str_match(GenomePos, "(?<=-)\\d+")),
+             strand = as.character(str_match(GenomePos, ".$")),
+             orf_id = paste0(Tid, "_", start_tish, "_", end_tish)) %>% 
+      filter((Stop-Start)/3-1 == AALen) %>% select(-Start, -Stop)
+    tish_gtf <- gtf %>% inner_join(tish_data, 
+                                   c("transcript_id" = "Tid", "strand",
+                                     "seqname"), 
+                                   relationship = "many-to-many") %>% 
+      mutate(transcript_id = as.character(transcript_id)) %>%
+      filter(start_tish <= end, end_tish >= start) %>% 
+      mutate(start = ifelse(start < start_tish, start_tish, start),
+             end = ifelse(end > end_tish, end_tish, end), 
+             width = end-start+1, group_name = orf_id)
+    tish_orf <- makeGRangesListFromDataFrame(tish_gtf, 
+                                             split.field = "group_name") 
+    mcols_tish <- tish_gtf %>% distinct(orf_id, gene_id, transcript_id,
+                                             TisType, RiboPvalue) %>% 
+      dplyr::rename(p_value = RiboPvalue) %>% mutate(p_sites = NULL)
+    tish_orf <- tish_orf[mcols_tish$orf_id]
+    mcols(tish_orf) <- mcols_tish
+    return(tish_orf)
+  }, mc.cores = ncores)
+  return(tish_dat)
+}
+
+get_all_tricer_orfs <- function(tricer_orf_file) {
+  # Read Ribotricer file containing all possible ORFs into GRangesLists
+  #
+  # Parameters:
+  #   tricer_orf_file - string, file path to tricer all ORF file
+  #
+  # Returns:
+  #   tricer_orfs_ranges - GRangesList, all ORFs from the input file
+  tricer_orfs_df <- fread(tricer_orf_file)
+  tricer_orfs_df <- tricer_orfs_df %>% 
+    mutate(exon_list = strsplit(coordinate, ","))
+  tricer_exons <- tricer_orfs_df[rep(seq_len(nrow(tricer_orfs_df)), 
+                                     lengths(tricer_orfs_df$exon_list)), ] %>% 
+    mutate(exon = unlist(tricer_orfs_df$exon_list)) %>% 
+    mutate(start = str_match(exon, "^\\d+"), 
+           end = str_match(exon, "\\d+$")) %>% 
+    dplyr::rename(group_name = ORF_ID, seqnames = chrom) %>% 
+    dplyr::select(group_name, seqnames, start, end, strand)
+  tricer_orfs_ranges <- makeGRangesListFromDataFrame(tricer_exons, 
+                                                    split.field = "group_name") 
+  return(tricer_orfs_ranges)
+}
+
+prepare_ribotricer <- function(tricer_files, tricer_allorf, ncores) {
+  # Create GRangesLists from Ribotricer predictions
+  #
+  # Parameters:
+  #   tricer_files - vector, file paths to the Ribotricer output files
+  #   tricer_allorf - GrangesList - result from get_all_tricer_orfs
+  #   ncores - int, number of cores to use for parallel processing
+  #
+  # Returns:
+  #   tricer_orfsfound - list, contains GRangesLists with the Ribotricer orfs
+  tricer_orfsfound <- mclapply(tricer_files, function(x) {
+    tricer_data <- fread(x) %>% 
+      dplyr::select(-status, -profile, -strand, -chrom) %>% 
+      dplyr::rename(p_sites = read_count, orf_id = ORF_ID, p_value = NULL)
+    tricer_found <- tricer_allorf[tricer_data$orf_id]
+    mcols(tricer_found) <- tricer_data
+    return(tricer_found)
+  }, mc.cores = ncores)
+  return(tricer_orfsfound)
+}
+
+get_combined_orfs <- function(orfs_list, files) {
+  # Combine a list of GRangesLists into a single GRangeList
+  #
+  # Parameters:
+  #   orfs_list - list, contains GRangesLists with the ORFs
+  #   files - vector, contains the file paths to the input files used to create
+  #                   orfs_list
+  #
+  # Returns:
+  #   orfs_list_combined - GRangesLists, contains GRangesLists with the ORFquant 
+  #                        orfs. Has an extra metacolumn source with the index
+  #                        indicating from which sample the ORF was
+  for (i in 1:length(orfs_list)) {
+    orf_mcols <- mcols(orfs_list[[i]])
+    orf_mcols$source <- rep(i, NROW(orfs_list[[i]]))
+    mcols(orfs_list[[i]]) <- orf_mcols
+  }
+  orfs_list_unique <- lapply(orfs_list, remove_duplicates)
+  orfs_list_combined <- do.call("c", orfs_list_unique)
+  duplicate_hits <- findOverlaps(orfs_list_combined, orfs_list_combined, type = "equal")
+  duplicate_count <- table(table(duplicate_hits@from))
+  duplicate_count <- duplicate_count / as.integer(names(duplicate_count))
+  sample_counts <- data.frame(sample=sapply(files, basename, USE.NAMES = FALSE),
+                              all_orfs=sapply(orfs_list, NROW), 
+                              unique_orfs=sapply(orfs_list_unique, NROW))
+  print(sample_counts)
+  print(paste0("All ORFs total: ", sum(sample_counts$all_orfs)))
+  print(paste0("Unique ORFs total: ", sum(sample_counts$unique_orfs)))
+  print("Counts of ORFs occuring in multiple samples:")
+  print(duplicate_count)
+  print(paste0("Sum of unique ORFs: ", sum(duplicate_count)))
+  return(orfs_list_combined)
+}
+
+remove_duplicates <- function(g_range_list) {
+  # Removes duplicates from the given GRangesList based on exact overlap
+  #
+  # Parameters:
+  #   g_range_list - GRangesList
+  #
+  # Returns:
+  #   g_range_unique - GRangesList, same as input, but without duplicates
+  duplicate_hits <- findOverlaps(g_range_list, g_range_list, type = "equal")
+  if (length(duplicate_hits) == length(g_range_list)) {
+    return(g_range_list)
+  }
+  g_range_unique <- g_range_list[-duplicate_hits@to[
+    duplicated(duplicate_hits@from)]]
+  return(g_range_unique)
+}
+
+create_overlap_matrix <- function(com_orfs, thd, overlap_list, orf_lengths, 
+                                  orf_sources, sample_num) {
+  # Compute overlap between a set of ORFs for a give required overlap fraction
+  #
+  # Parameters:
+  #   com_orfs - GRangesLists, the ORFs, including a source meta column
+  #   thd - double, the required overlap fraction
+  #   overlap_list - list, maps the indexes of overlapping ORFs
+  #   orf_lengths - vector, the length of each ORF in com_orfs
+  #   orf_sources - vector, the source index of each ORF in com_orfs
+  #   sample_num - int, the total number of samples
+  #
+  # Returns:
+  #   orfs_list_combined - GRangesLists, contains GRangesLists with the ORFquant 
+  #                        orfs
+  overlap_matrix <- matrix(0, ncol = sample_num + 1, nrow = NROW(com_orfs))
+  for (i in 1:NROW(com_orfs)) {
+    source_idx <- orf_sources[i]
+    pos_parents <- overlap_list[[i]]
+    overlap_matrix[i,source_idx] <- overlap_matrix[i,source_idx] + 1
+    if (length(pos_parents) == 1) {
+      next
+    }
+    child_width <- orf_lengths[i]
+    len_parents <- sapply(pos_parents, function(x) child_width/orf_lengths[x])
+    parent <- pos_parents[min(which(len_parents == 
+                                      min(len_parents[len_parents >= thd])))]
+    if (parent == i) {
+      next
+    }
+    overlap_matrix[i,sample_num + 1] <- parent
+    while (parent > 0) {
+      overlap_matrix[parent, source_idx] = 
+        overlap_matrix[parent, source_idx] + 1
+      parent <- overlap_matrix[parent, sample_num + 1]
+    }
+  }
+  parent_overlap_counts <- overlap_matrix[overlap_matrix[,sample_num + 1] == 
+                                            0,1:sample_num]
+  duplicate_counts <- table(rowSums(parent_overlap_counts > 0))
+  print(paste0("Counts of ORFs occuring in multiple when requiring ",
+               "minimum overlap of ",thd, ":"))
+  print(duplicate_counts)
+  print(paste0("Sum of unique ORFs: ", sum(duplicate_counts)))
+  return(overlap_matrix)
+}
+
+get_partial_overlap <- function(com_orfs, thds) {
+  # Computes full or partial overlap between a set of ORFs
+  #
+  # Parameters:
+  #   com_orfs - GRangesLists, the ORFs, including a source meta column
+  #   thds - vector, the required overlap fractions for which to compute the 
+  #          overlap
+  #
+  # Returns:
+  #   all_overlap - matrix, contains per threshold-source combination a column
+  #                 named threshold_source and per threshold a column named
+  #                 threshold_parent. Number of rows is equal to the length of
+  #                 com_orfs. Per ORF and threshold it is indicated whether it
+  #                 has an overlapping parent by an index in the parent column.
+  #                 The threshold_source columns indicate which samples contain
+  #                 an overlapping ORF.
+  within_overlap <- findOverlaps(com_orfs, com_orfs, type = "within")
+  minus_end_overlap <- findOverlaps(com_orfs[strand(com_orfs) == "-"], 
+                                    com_orfs, type = "start")
+  plus_end_overlap <- findOverlaps(com_orfs[strand(com_orfs) == "+"], 
+                                   com_orfs, type = "end")
+  within_overlap_list <- split(within_overlap@to, within_overlap@from)
+  minus_end_overlap_list <- split(to(minus_end_overlap), 
+                                  from(minus_end_overlap))
+  plus_end_overlap_list <- split(to(plus_end_overlap), from(plus_end_overlap))
+  unsorted_end_overlap_list <- c(minus_end_overlap_list, plus_end_overlap_list)
+  end_overlap_list <- vector(mode = "list", 
+                             length = length(unsorted_end_overlap_list))
+  for (i in 1:length(unsorted_end_overlap_list)) {
+    row_data <- unsorted_end_overlap_list[[i]]
+    for (j in 1:length(row_data)) {
+      end_overlap_list[[row_data[j]]] <- row_data
+    }
+  }
+  overlap_list <- mapply(intersect, within_overlap_list, end_overlap_list)
+  sample_num <- max(mcols(com_orfs)$source)
+  all_overlap <- matrix(0, ncol = (sample_num+1) * length(thds), 
+                        nrow = NROW(com_orfs))
+  col_names_a <- rep(thds, each = sample_num+1)
+  col_names_b <- rep.int(c(1:sample_num, "parent"), length(thds))
+  colnames(all_overlap) <- paste(col_names_a, col_names_b, sep="_")
+  orf_lengths <- sum(width(com_orfs))
+  orf_sources <- mcols(com_orfs)$source
+  for (i in 1:length(thds)) {
+    overlap_matrix <- create_overlap_matrix(com_orfs, thds[i], overlap_list, 
+                                            orf_lengths, orf_sources, sample_num)
+    all_overlap[,((sample_num+1)*(i-1)+1):((sample_num+1)*i)] <- overlap_matrix
+  }
+  return(all_overlap)
+}
+
+get_overlap_counts <- function(m_overlap, thds, pred_source) {
+  # Get count of shared ORFs between 1, 3 & 6 samples for each threshold 
+  #
+  # Parameters:
+  #   m_overlap - matrix, created by get_partial_overlap function
+  #   thds - vector, the required overlap fractions for which to compute the 
+  #          overlap
+  #   pred_source - string, name of the orfcaller
+  #
+  # Returns:
+  #   graph_data - dataframe, contains for each combination of overlap fraction 
+  #     and whether an ORF needs to be shared between 1, 3 & 6 samples the total
+  #     number of unique orfs
+  sample_num <- ncol(m_overlap)/length(thds) - 1
+  graph_data <- matrix(0, ncol = 6, nrow = length(thds))
+  colnames(graph_data) <- c("x", "All", "Half","Common","Viable", "Source")
+  graph_data <- as.data.frame(graph_data)
+  graph_data[,"x"] <- thds
+  for (i in 1:length(thds)) {
+    overlap_cols <- sapply(1:sample_num, function(x) paste(thds[i], x, sep="_"))
+    parent_col <- paste(thds[i], "parent", sep="_")
+    overlap_counts <- m_overlap[m_overlap[,parent_col] == 0,overlap_cols]
+    duplicate_counts <- table(rowSums(overlap_counts > 0))
+    total_orf <- sum(duplicate_counts)
+    common_orf <- sum(duplicate_counts[sample_num])
+    half_orf <- sum(duplicate_counts[round(sample_num/2):sample_num])
+    viable_orf <- sum(duplicate_counts[3:sample_num])
+    graph_data[i,"All"] <- total_orf
+    graph_data[i, "Common"] <- common_orf
+    graph_data[i, "Half"] <- half_orf
+    graph_data[i, "Viable"] <- viable_orf
+    
+    
+  }
+  graph_data <- graph_data %>% pivot_longer(cols = c("All", "Half","Common","Viable")) %>% 
+    mutate(Source = pred_source)
+  return(graph_data)
+}
+
+filter_orfs <- function(m_overlap, m_orfs) {
+  # Determine for each unique ORFs between how many samples it is shared
+  # Parameters:
+  #   m_overlap - matrix, created by get_partial_overlap function
+  #   m_orfs - GRangesList, all ORFs from an ORF caller
+  #
+  # Returns:
+  #   orfs_filtered - dataframe, rownames are ORF ids, the column indicates
+  #     between how many samples the ORF was shared
+  orfs_filtered <- m_overlap %>% 
+    as.data.frame(row.names = names(m_orfs)) %>% 
+    filter(`1_parent` == 0) %>% 
+    dplyr::select(starts_with("1_") & !ends_with("parent")) %>% 
+    apply(1, function(x) sum(x>0)) %>% 
+    as.data.frame()
+  names(orfs_filtered) <- "rowsum"
+  return(orfs_filtered)
+}
+
+
+```
+
+# container
+
+```{r parameters}
+
+wd <- "/hpc/pmc_vanheesch/projects/Jip/pilots/20230606_JD_containers/02_riboseq"
+savedir <- paste(wd, "results", sep = "/")
+
+gtf_file <- "/hpc/pmc_vanheesch/projects/Jip/pilots/20230606_JD_containers/01_rnaseq/analysis/container/customannotation/container_pancreas_novel_filtered.gtf"
+gtf_rannot_file <- "/hpc/pmc_vanheesch/projects/Jip/pilots/20230606_JD_containers/01_rnaseq/analysis/container/customannotation/container_pancreas/container_pancreas_novel_filtered.gtf_Rannot"
+
+colors = RColorBrewer::brewer.pal(4, "Set1")
+
+thresholds <- c(0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1)
+
+orf_methods <- c("ORFquant", "PRICE", "Ribo-TISH", "Ribotricer")
+
+orfquant_files = list.files(paste(wd,"analysis","container","ORFquant",sep="/"),
+                            pattern = "*final_ORFquant_results",
+                            recursive = T,
+                            full.names = T)
+```
+
+```{r GTF based reference}
+gtf_data <- fread(gtf_file, skip = 5)
+colnames(gtf_data) <- c("seqname", "source", "feature", "start", "end", 
+                        "score", "strand", "frame", "attribute")
+tid_gid <- gtf_data %>% 
+    mutate(transcript_id = as.character(str_match(attribute, "ENST\\d+|MSTRG[.]\\d+[.]\\d+")),
+           gene_id = as.character(str_match(attribute, "ENST\\d+|MSTRG[.]\\d+[.]\\d+"))) %>% 
+  select(transcript_id, gene_id) %>% 
+  filter(!is.na(transcript_id)) %>% distinct()
+
+gtf_exon <- gtf_data %>% 
+  mutate(transcript_id = as.character(str_match(attribute, "ENST\\d+|MSTRG[.]\\d+[.]\\d+")),
+         gene_id = as.character(str_match(attribute, "ENST\\d+|MSTRG[.]\\d+[.]\\d+"))) %>% 
+  filter(feature == "exon") %>% select(seqname, start, end, strand, 
+                                       transcript_id, gene_id)
+
+lnc_genes <- gtf_data %>% 
+  mutate(gene_id = as.character(str_match(attribute, "ENST\\d+|MSTRG[.]\\d+[.]\\d+"))) %>% 
+  filter(feature == "gene") %>% 
+  mutate(biotype = as.character(
+    str_match(attribute,"(?<=gene_biotype \").*(?=\")"))) %>% 
+  filter(biotype == "lncRNA") %>% 
+  select(gene_id, biotype)
+
+#Load GTF rannot file from ORFquant
+load(gtf_rannot_file)
+gtf_ref <- GTF_annotation$cds_txs %>% as.data.frame() %>% 
+    group_by(group_name) %>% 
+    summarise(gtf_sta = min(start), gtf_end = max(end)) %>% 
+    dplyr::rename(transcript_id = group_name)
+```
+
+```{r run }
+message(paste(Sys.time(),"Preparing separate ORFs ..."))
+
+orfquant_orfs <- prepare_orfs(orfquant_files, orf_methods[1], 2)
+
+save(orfquant_orfs, 
+     file = paste0(savedir, "/orfs_separate.RData"))
+
+message(paste(Sys.time(),"Preparing combined ORFs ..."))
+
+load(paste0(savedir, "/orfs_separate.RData"))
+
+orfquant_orfs_combined <- get_combined_orfs(orfquant_orfs, orfquant_files)
+
+save(orfquant_orfs_combined, 
+     file = paste0(savedir, "/orfs_combined.RData"))
+
+message(paste(Sys.time(),"Creating overlap matrix ..."))
+
+orfquant_overlap <- get_partial_overlap(orfquant_orfs_combined, thresholds)
+
+save(orfquant_overlap, 
+     file = paste0(savedir, "/orfs_overlap.RData"))
+
+message(paste(Sys.time(),"ORF analysis finished"))
+```
+
+
+## Subset orfs by occurrence
+```{r}
+
+# Subset orfs by occurrence
+orfs_occurence <- filter_orfs(orfquant_overlap,orfquant_orfs_combined)
+
+
+orfs_all <- orfquant_orfs_combined[orfs_occurence %>% 
+                                      filter(rowsum >= 1) %>% rownames()] 
+
+orfs_viable <- orfquant_orfs_combined[orfs_occurence %>% 
+                                      filter(rowsum >= 3) %>% rownames()]
+
+orfs_half <- orfquant_orfs_combined[orfs_occurence %>% 
+                                      filter(rowsum >= round(length(orfquant_files)/2)) %>% rownames()]
+
+orfs_common <- orfquant_orfs_combined[orfs_occurence %>% 
+                                      filter(rowsum >= length(orfquant_files)) %>% rownames()]
+
+```
+
+"All","Viable","Half","Common"
+
+## Create length graph
+```{r}
+orf_lengths_all <- data.frame(lengths = sum(width(orfs_all))-3, method = orf_methods[1]) %>% 
+  bind_rows() %>% mutate(shared = "All")
+
+orf_lengths_viable <- data.frame(lengths = sum(width(orfs_viable))-3, method = orf_methods[1]) %>% 
+  bind_rows() %>% mutate(shared = "Viable")
+
+orf_lengths_half <- data.frame(lengths = sum(width(orfs_half))-3, method = orf_methods[1]) %>% 
+  bind_rows() %>% mutate(shared = "Half")
+
+orf_lengths_common <- data.frame(lengths = sum(width(orfs_common))-3, method = orf_methods[1]) %>% 
+  bind_rows() %>% mutate(shared = "Common")
+
+orf_lengths <- list(orf_lengths_all, orf_lengths_viable, orf_lengths_half,orf_lengths_common) %>% 
+  bind_rows() %>% mutate(shared = factor(shared, 
+  levels = c("All","Viable","Half","Common")))
+
+### TEST
+ggplot(orf_lengths, aes(x=lengths, colour = shared)) + 
+  geom_density(alpha=.2) +
+  scale_x_log10(name = "ORF length (bp)", expand = c(0, 0)) + 
+  scale_y_continuous(name="Density", expand = expansion(mult = c(0, 0), 
+                                         add = c(0, 0.04)))  +
+  theme_classic() + 
+  theme(axis.text.y = element_text(colour="black", size=9)) +
+  theme(axis.title = element_text(colour="black", size=12)) +
+  labs(linetype=element_blank(),colour=element_blank()) +
+  scale_colour_manual(values=colors[1:4],labels = 
+    c("Total number\nof unique ORFs\n",
+      "ORFs shared\nby 3 samples\n", 
+      "ORFs shared\nby 1/2 samples\n", 
+      "ORFs shared\nby all samples\n")) +
+  theme(axis.text.x = element_text(angle = 90, colour="black", 
+                                   size = 9, vjust = 0.5))
+ggsave("RMS_ORF_length_colours.pdf", device = "pdf", path = savedir,
+       width = 1400, 
+       height = 1000, units = "px")
+
+ggplot(orf_lengths, aes(x=lengths, colour = method, linetype = shared)) + 
+  geom_density(alpha=.2) +
+  scale_x_log10(name = "ORF length (bp)", expand = c(0, 0)) + 
+  scale_y_continuous(name="Density", expand = expansion(mult = c(0, 0), 
+                                         add = c(0, 0.04)))  +
+  theme_classic() + 
+  theme(axis.text.y = element_text(colour="black", size=9)) +
+  theme(axis.title = element_text(colour="black", size=12)) +
+  labs(linetype=element_blank(), colour=element_blank()) +
+  scale_colour_manual(values=colors[4]) + 
+  guides(colour = "none") +
+  theme(axis.text.x = element_text(angle = 90, colour="black", 
+                                   size = 9, vjust = 0.5)) +
+  scale_linetype_manual(values=c("solid", "dashed","dotdash","dotted"),
+                        labels = 
+    c("Total number\nof unique ORFs\n",
+      "ORFs shared\nby 3 samples\n", 
+      "ORFs shared\nby 1/2 samples\n", 
+      "ORFs shared\nby all samples\n"))
+
+ggsave("RMS_ORF_length.pdf", device = "pdf", path = savedir,
+       width = 1400, 
+       height = 1000, units = "px")
+
+```
+
+"All","Viable","Half","Common"
+## Create category graph
+```{r}
+
+categories_all <- data.frame(mcols(orfs_all), 
+                            method = orf_methods[1]) %>% bind_rows() %>% 
+  left_join(lnc_genes, "gene_id") %>% 
+  mutate(orf_category = ifelse(!is.na(biotype), biotype, orf_category)) %>% 
+  group_by(method, orf_category) %>% summarise(cat_count = dplyr::n()) %>% 
+  ungroup() %>% group_by(method) %>% 
+  mutate(perc = cat_count/sum(cat_count)*100, shared = "All")
+
+categories_viable <- data.frame(mcols(orfs_viable), 
+                            method = orf_methods[1]) %>% bind_rows() %>% 
+  left_join(lnc_genes, "gene_id") %>% 
+  mutate(orf_category = ifelse(!is.na(biotype), biotype, orf_category)) %>% 
+  group_by(method, orf_category) %>% summarise(cat_count = dplyr::n()) %>% 
+  ungroup() %>% group_by(method) %>% 
+  mutate(perc = cat_count/sum(cat_count)*100, shared = "Viable")
+
+categories_half <- data.frame(mcols(orfs_half), 
+                            method = orf_methods[1]) %>% bind_rows() %>% 
+  left_join(lnc_genes, "gene_id") %>% 
+  mutate(orf_category = ifelse(!is.na(biotype), biotype, orf_category)) %>% 
+  group_by(method, orf_category) %>% summarise(cat_count = dplyr::n()) %>% 
+  ungroup() %>% group_by(method) %>% 
+  mutate(perc = cat_count/sum(cat_count)*100, shared = "Half")
+
+categories_common <- data.frame(mcols(orfs_common), 
+                            method = orf_methods[1]) %>% bind_rows() %>% 
+  left_join(lnc_genes, "gene_id") %>% 
+  mutate(orf_category = ifelse(!is.na(biotype), biotype, orf_category)) %>% 
+  group_by(method, orf_category) %>% summarise(cat_count = dplyr::n()) %>% 
+  ungroup() %>% group_by(method) %>% 
+  mutate(perc = cat_count/sum(cat_count)*100, shared = "Common")
+
+cat_df <- list(categories_all, 
+               categories_viable, 
+               categories_half,
+               categories_common) %>% 
+  bind_rows() %>% 
+  mutate(orf_category = factor(orf_category, levels = c("ORF_annotated", 
+      "N_extension", "N_truncation", "C_extension", "C_truncation", 
+      "NC_extension", "uORF", "overl_uORF", "nested_ORF", 
+      "overl_dORF", "dORF", "lncRNA", "novel")),
+      shared = factor(shared, levels = c("All","Viable","Half","Common")))
+
+plot_col <- c(c(brewer.pal(12, "Set3")), c(brewer.pal(12, "Paired"))[12])
+
+ggplot(data=cat_df, 
+                 aes(x=shared, y=cat_count, fill=orf_category)) + 
+  geom_bar(stat="identity") +
+  scale_y_continuous(name="Percentage of ORFs", expand = c(0, 0)) +
+  scale_x_discrete(name = "Minimum number of samples in which an ORF was found", 
+                   expand = c(0, 0), labels = c("1", "3", "half","all samples")) +
+  theme(legend.text = element_text(size = 12)) +
+  theme_classic() + theme(axis.text = element_text(colour="black", size=9)) +
+  theme(axis.title = element_text(colour="black", size=12)) +
+  labs(linetype=element_blank(), fill="ORF category") +
+  scale_fill_manual(values=plot_col)
+
+ggsave("ORF_categories.pdf", device = "pdf", path = savedir, width = 1800, 
+       height = 1200, units = "px")
+
+```
+
+## Create category graph -- percentage
+```{r}
+
+ggplot(data=cat_df, 
+                 aes(x=shared, y=perc, fill=orf_category)) + 
+  geom_bar(stat="identity") +
+  scale_y_continuous(name="Percentage of ORFs", expand = c(0, 0)) +
+  scale_x_discrete(name = "Minimum number of samples in which an ORF was found", 
+                   expand = c(0, 0), labels = c("1", "3", "half","all samples")) +
+  theme(legend.text = element_text(size = 12)) +
+  theme_classic() + theme(axis.text = element_text(colour="black", size=9)) +
+  theme(axis.title = element_text(colour="black", size=12)) +
+  labs(linetype=element_blank(), fill="ORF category") +
+  scale_fill_manual(values=plot_col)
+
+ggsave("ORF_categories_percentage.pdf", device = "pdf", path = savedir, width = 1800, 
+       height = 1200, units = "px")
+
+```
+
+
+# module
+
+```{r parameters}
+
+wd <- "/hpc/pmc_vanheesch/projects/Jip/pilots/20230606_JD_containers/02_riboseq"
+savedir <- paste(wd, "results", sep = "/")
+
+gtf_file <- "/hpc/pmc_vanheesch/projects/Jip/pilots/20230606_JD_containers/01_rnaseq/analysis/base/customannotation/base_merged_novel_filtered.gtf"
+gtf_rannot_file <- "/hpc/pmc_vanheesch/projects/Jip/pilots/20230606_JD_containers/01_rnaseq/analysis/base/customannotation/base_merged/base_merged_novel_filtered.gtf_Rannot")
+
+colors = RColorBrewer::brewer.pal(4, "Set1")
+
+thresholds <- c(0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1)
+
+orf_methods <- c("ORFquant", "PRICE", "Ribo-TISH", "Ribotricer")
+
+orfquant_files = list.files(paste(wd,"analysis","base","ORFquant",sep="/"),
+                            pattern = "*final_ORFquant_results",
+                            recursive = T,
+                            full.names = T)
+
+```
+
+
+## Subset orfs by occurrence
+```{r}
+
+# Subset orfs by occurrence
+orfs_occurence <- filter_orfs(orfquant_overlap,orfquant_orfs_combined)
+
+
+orfs_all <- orfquant_orfs_combined[orfs_occurence %>% 
+                                      filter(rowsum >= 1) %>% rownames()] 
+
+orfs_viable <- orfquant_orfs_combined[orfs_occurence %>% 
+                                      filter(rowsum >= 3) %>% rownames()]
+
+orfs_half <- orfquant_orfs_combined[orfs_occurence %>% 
+                                      filter(rowsum >= round(length(orfquant_files)/2)) %>% rownames()]
+
+orfs_common <- orfquant_orfs_combined[orfs_occurence %>% 
+                                      filter(rowsum >= length(orfquant_files)) %>% rownames()]
+
+```
+
+"All","Viable","Half","Common"
+
+## Create length graph
+```{r}
+orf_lengths_all <- data.frame(lengths = sum(width(orfs_all))-3, method = orf_methods[1]) %>% 
+  bind_rows() %>% mutate(shared = "All")
+
+orf_lengths_viable <- data.frame(lengths = sum(width(orfs_viable))-3, method = orf_methods[1]) %>% 
+  bind_rows() %>% mutate(shared = "Viable")
+
+orf_lengths_half <- data.frame(lengths = sum(width(orfs_half))-3, method = orf_methods[1]) %>% 
+  bind_rows() %>% mutate(shared = "Half")
+
+orf_lengths_common <- data.frame(lengths = sum(width(orfs_common))-3, method = orf_methods[1]) %>% 
+  bind_rows() %>% mutate(shared = "Common")
+
+orf_lengths <- list(orf_lengths_all, orf_lengths_viable, orf_lengths_half,orf_lengths_common) %>% 
+  bind_rows() %>% mutate(shared = factor(shared, 
+  levels = c("All","Viable","Half","Common")))
+
+### TEST
+ggplot(orf_lengths, aes(x=lengths, colour = shared)) + 
+  geom_density(alpha=.2) +
+  scale_x_log10(name = "ORF length (bp)", expand = c(0, 0)) + 
+  scale_y_continuous(name="Density", expand = expansion(mult = c(0, 0), 
+                                         add = c(0, 0.04)))  +
+  theme_classic() + 
+  theme(axis.text.y = element_text(colour="black", size=9)) +
+  theme(axis.title = element_text(colour="black", size=12)) +
+  labs(linetype=element_blank(),colour=element_blank()) +
+  scale_colour_manual(values=colors[1:4],labels = 
+    c("Total number\nof unique ORFs\n",
+      "ORFs shared\nby 3 samples\n", 
+      "ORFs shared\nby 1/2 samples\n", 
+      "ORFs shared\nby all samples\n")) +
+  theme(axis.text.x = element_text(angle = 90, colour="black", 
+                                   size = 9, vjust = 0.5))
+ggsave("RMS_ORF_length_colours.pdf", device = "pdf", path = savedir,
+       width = 1400, 
+       height = 1000, units = "px")
+
+ggplot(orf_lengths, aes(x=lengths, colour = method, linetype = shared)) + 
+  geom_density(alpha=.2) +
+  scale_x_log10(name = "ORF length (bp)", expand = c(0, 0)) + 
+  scale_y_continuous(name="Density", expand = expansion(mult = c(0, 0), 
+                                         add = c(0, 0.04)))  +
+  theme_classic() + 
+  theme(axis.text.y = element_text(colour="black", size=9)) +
+  theme(axis.title = element_text(colour="black", size=12)) +
+  labs(linetype=element_blank(), colour=element_blank()) +
+  scale_colour_manual(values=colors[4]) + 
+  guides(colour = "none") +
+  theme(axis.text.x = element_text(angle = 90, colour="black", 
+                                   size = 9, vjust = 0.5)) +
+  scale_linetype_manual(values=c("solid", "dashed","dotdash","dotted"),
+                        labels = 
+    c("Total number\nof unique ORFs\n",
+      "ORFs shared\nby 3 samples\n", 
+      "ORFs shared\nby 1/2 samples\n", 
+      "ORFs shared\nby all samples\n"))
+
+ggsave("RMS_ORF_length.pdf", device = "pdf", path = savedir,
+       width = 1400, 
+       height = 1000, units = "px")
+
+```
+
+"All","Viable","Half","Common"
+## Create category graph
+```{r}
+
+categories_all <- data.frame(mcols(orfs_all), 
+                            method = orf_methods[1]) %>% bind_rows() %>% 
+  left_join(lnc_genes, "gene_id") %>% 
+  mutate(orf_category = ifelse(!is.na(biotype), biotype, orf_category)) %>% 
+  group_by(method, orf_category) %>% summarise(cat_count = dplyr::n()) %>% 
+  ungroup() %>% group_by(method) %>% 
+  mutate(perc = cat_count/sum(cat_count)*100, shared = "All")
+
+categories_viable <- data.frame(mcols(orfs_viable), 
+                            method = orf_methods[1]) %>% bind_rows() %>% 
+  left_join(lnc_genes, "gene_id") %>% 
+  mutate(orf_category = ifelse(!is.na(biotype), biotype, orf_category)) %>% 
+  group_by(method, orf_category) %>% summarise(cat_count = dplyr::n()) %>% 
+  ungroup() %>% group_by(method) %>% 
+  mutate(perc = cat_count/sum(cat_count)*100, shared = "Viable")
+
+categories_half <- data.frame(mcols(orfs_half), 
+                            method = orf_methods[1]) %>% bind_rows() %>% 
+  left_join(lnc_genes, "gene_id") %>% 
+  mutate(orf_category = ifelse(!is.na(biotype), biotype, orf_category)) %>% 
+  group_by(method, orf_category) %>% summarise(cat_count = dplyr::n()) %>% 
+  ungroup() %>% group_by(method) %>% 
+  mutate(perc = cat_count/sum(cat_count)*100, shared = "Half")
+
+categories_common <- data.frame(mcols(orfs_common), 
+                            method = orf_methods[1]) %>% bind_rows() %>% 
+  left_join(lnc_genes, "gene_id") %>% 
+  mutate(orf_category = ifelse(!is.na(biotype), biotype, orf_category)) %>% 
+  group_by(method, orf_category) %>% summarise(cat_count = dplyr::n()) %>% 
+  ungroup() %>% group_by(method) %>% 
+  mutate(perc = cat_count/sum(cat_count)*100, shared = "Common")
+
+cat_df <- list(categories_all, 
+               categories_viable, 
+               categories_half,
+               categories_common) %>% 
+  bind_rows() %>% 
+  mutate(orf_category = factor(orf_category, levels = c("ORF_annotated", 
+      "N_extension", "N_truncation", "C_extension", "C_truncation", 
+      "NC_extension", "uORF", "overl_uORF", "nested_ORF", 
+      "overl_dORF", "dORF", "lncRNA", "novel")),
+      shared = factor(shared, levels = c("All","Viable","Half","Common")))
+
+plot_col <- c(c(brewer.pal(12, "Set3")), c(brewer.pal(12, "Paired"))[12])
+
+ggplot(data=cat_df, 
+                 aes(x=shared, y=cat_count, fill=orf_category)) + 
+  geom_bar(stat="identity") +
+  scale_y_continuous(name="Percentage of ORFs", expand = c(0, 0)) +
+  scale_x_discrete(name = "Minimum number of samples in which an ORF was found", 
+                   expand = c(0, 0), labels = c("1", "3", "half","all samples")) +
+  theme(legend.text = element_text(size = 12)) +
+  theme_classic() + theme(axis.text = element_text(colour="black", size=9)) +
+  theme(axis.title = element_text(colour="black", size=12)) +
+  labs(linetype=element_blank(), fill="ORF category") +
+  scale_fill_manual(values=plot_col)
+
+ggsave("ORF_categories.pdf", device = "pdf", path = savedir, width = 1800, 
+       height = 1200, units = "px")
+
+```
+
+## Create category graph -- percentage
+```{r}
+
+ggplot(data=cat_df, 
+                 aes(x=shared, y=perc, fill=orf_category)) + 
+  geom_bar(stat="identity") +
+  scale_y_continuous(name="Percentage of ORFs", expand = c(0, 0)) +
+  scale_x_discrete(name = "Minimum number of samples in which an ORF was found", 
+                   expand = c(0, 0), labels = c("1", "3", "half","all samples")) +
+  theme(legend.text = element_text(size = 12)) +
+  theme_classic() + theme(axis.text = element_text(colour="black", size=9)) +
+  theme(axis.title = element_text(colour="black", size=12)) +
+  labs(linetype=element_blank(), fill="ORF category") +
+  scale_fill_manual(values=plot_col)
+
+ggsave("ORF_categories_percentage.pdf", device = "pdf", path = savedir, width = 1800, 
+       height = 1200, units = "px")
+
+```
+
+
+```{r GTF based reference}
+gtf_data <- fread(gtf_file, skip = 5)
+colnames(gtf_data) <- c("seqname", "source", "feature", "start", "end", 
+                        "score", "strand", "frame", "attribute")
+tid_gid <- gtf_data %>% 
+    mutate(transcript_id = as.character(str_match(attribute, "ENST\\d+|MSTRG[.]\\d+[.]\\d+")),
+           gene_id = as.character(str_match(attribute, "ENST\\d+|MSTRG[.]\\d+[.]\\d+"))) %>% 
+  select(transcript_id, gene_id) %>% 
+  filter(!is.na(transcript_id)) %>% distinct()
+
+gtf_exon <- gtf_data %>% 
+  mutate(transcript_id = as.character(str_match(attribute, "ENST\\d+|MSTRG[.]\\d+[.]\\d+")),
+         gene_id = as.character(str_match(attribute, "ENST\\d+|MSTRG[.]\\d+[.]\\d+"))) %>% 
+  filter(feature == "exon") %>% select(seqname, start, end, strand, 
+                                       transcript_id, gene_id)
+
+lnc_genes <- gtf_data %>% 
+  mutate(gene_id = as.character(str_match(attribute, "ENST\\d+|MSTRG[.]\\d+[.]\\d+"))) %>% 
+  filter(feature == "gene") %>% 
+  mutate(biotype = as.character(
+    str_match(attribute,"(?<=gene_biotype \").*(?=\")"))) %>% 
+  filter(biotype == "lncRNA") %>% 
+  select(gene_id, biotype)
+
+#Load GTF rannot file from ORFquant
+load(gtf_rannot_file)
+gtf_ref <- GTF_annotation$cds_txs %>% as.data.frame() %>% 
+    group_by(group_name) %>% 
+    summarise(gtf_sta = min(start), gtf_end = max(end)) %>% 
+    dplyr::rename(transcript_id = group_name)
+```
+
+```{r}
+message(paste(Sys.time(),"Preparing separate ORFs ..."))
+
+orfquant_orfs <- prepare_orfs(orfquant_files, orf_methods[1], 2)
+
+save(orfquant_orfs, 
+     file = paste0(savedir, "/orfs_separate.RData"))
+
+message(paste(Sys.time(),"Preparing combined ORFs ..."))
+
+load(paste0(savedir, "/orfs_separate.RData"))
+
+orfquant_orfs_combined <- get_combined_orfs(orfquant_orfs, orfquant_files)
+
+save(orfquant_orfs_combined, 
+     file = paste0(savedir, "/orfs_combined.RData"))
+
+message(paste(Sys.time(),"Creating overlap matrix ..."))
+
+orfquant_overlap <- get_partial_overlap(orfquant_orfs_combined, thresholds)
+
+save(orfquant_overlap, 
+     file = paste0(savedir, "/orfs_overlap.RData"))
+
+message(paste(Sys.time(),"ORF analysis finished"))
+```

@@ -48,7 +48,7 @@ fi
 source $CONFIG
 
 # Load general functions
-source ${scriptdir}/general_functions.sh
+source ${scriptdir}/mrp_functions.sh
 
 # Create a unique prefix for the names for this run_id of the pipeline
 # This makes sure that run_ids can be identified
@@ -79,7 +79,7 @@ export rannot=${rannot}
 export gtf=${gtf}
 
 # Create output directories
-mkdir -p ${project_folder}/log/${run_id}/{trimgalore,star_align,bowtie2,riboseqc} 
+mkdir -p ${project_folder}/log/${run_id}/orfquant 
 echo "`date` using run ID: ${run_id}"
 mkdir -p ${outdir}
 
@@ -98,8 +98,6 @@ done
 # Run the pipeline
 #
 ################################################################################
-
-mkdir -p ${project_folder}/log/${run_id}/orfquant/
 
 echo -e "\n ====== `date` Map Riboseq Pipeline ====== \n"
 
@@ -120,7 +118,7 @@ orfquant_jobid+=($(sbatch --parsable \
 ))
 
 if [[ ${#orfquant_jobid[@]} -eq 0 ]]; then
-  fatal "ORFquant job not submitted successfully, trim_jobid array is empty"
+  fatal "ORFquant job not submitted successfully, array is empty"
 fi
 
 info "orfquant jobid: ${orfquant_jobid}"

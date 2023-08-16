@@ -108,8 +108,8 @@ echo -e "=======================================================================
 orfquant_jobid=()
 
 orfquant_jobid+=($(sbatch --parsable \
-  --mem=12 \
-  --cpus-per-task=40G \
+  --mem=40G \
+  --cpus-per-task=12 \
   --time=144:00:00 \
   --array 1-${#samples[@]}%${simul_array_runs} \
   --job-name=${run_id}.orfquant \

@@ -11,9 +11,6 @@
 # Load parameters from main script
 threads=$((SLURM_CPUS_PER_TASK * 2))
 
-# Load software modules
-module load R/${r_version}
-
 # Load files
 mapfile -t r1_files < ${project_folder}/documentation/r1_files.txt
 mapfile -t sample_ids < ${project_folder}/documentation/sample_ids.txt
@@ -33,8 +30,7 @@ echo "`date` calling ORFs for ${sample_id}"
 cd "${outdir}/"
 mkdir -p "ORFquant/${sample_id}/"
 
-apptainer exec -B "/hpc:/hpc" ${container_dir}/orfquant-4.1.2.sif \ 
-  Rscript "${scriptdir}/mrp_orfquant.R" \
+apptainer exec -B "/hpc:/hpc" ${container_dir}/orfquant-4.1.2.sif Rscript "${scriptdir}/mrp_orfquant.R" \
   ${wd} \
   "${outdir}/RiboseQC/${sample_id}/${sample_id}_for_ORFquant" \
   "${sample_id}" \
